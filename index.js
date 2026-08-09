@@ -54,7 +54,7 @@ http.createServer((req, res) => {
 
 // --- 2. SUPABASE & TELEGRAM AYARLARI ---
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://fkcmlkbpwpjgdamhtegn.supabase.co'; 
-const SUPABASE_KEY = process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZrY21sa2Jwd3BqZ2RhbWh0ZWduIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYyMDkzODgsImV4cCI6MjEwMTc4NTM4OH0.2IQYeMZsICHPGQKBT3M8NCDdQXaqsTMsVxOFcTOrTTw';
+const SUPABASE_KEY = process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZrY21sa2Jwd3BqZ2RhbWh0egnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYyMDkzODgsImV4cCI6MjEwMTc4NTM4OH0.2IQYeMZsICHPGQKBT3M8NCDdQXaqsTMsVxOFcTOrTTw';
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8624611315:AAHnYXg9RaaWjumP6jeCBzogVNYe_XQ13xc'; 
 const TELEGRAM_KANAL_ID = process.env.TELEGRAM_KANAL_ID || '-1003776147836'; 
 
@@ -101,7 +101,43 @@ async function oturumuSupabaseaYedekle() {
   }
 }
 
-// --- 4. YARDIMCI FONKSİYONLAR ---
+// --- 4. SPAM VE İLGİSİZ MESAJ FİLTRESİ ---
+const KARA_KELIMELER = [
+  'asansör',
+  'mobilya',
+  'evden eve',
+  'kanalını takip edin',
+  'whatsapp.com/channel',
+  'taşıma görevi',
+  'planlanan taşıma',
+  'parana sahip çık',
+  'şarkışla',
+  'lütfen whatsapp üzerinden',
+  'mesaj bırakın',
+  'satılık',
+  'kiralık',
+  'devren',
+  'eleman',
+  'dükkan',
+  'şoför aranıyor'
+];
+
+function spamMi(mesaj) {
+  if (!mesaj || mesaj.length < 15) return true; // Çok kısa mesajlar engellenir
+  
+  const kucukMesaj = mesaj.toLowerCase();
+  
+  // Kara kelimelerden biri geçiyorsa engelle
+  const karaKelimeVar = KARA_KELIMELER.some(kelime => kucukMesaj.includes(kelime));
+  if (karaKelimeVar) return true;
+
+  // Web adresi veya WhatsApp kanal linki içeriyorsa engelle
+  if (kucukMesaj.includes('http://') || kucukMesaj.includes('https://') || kucukMesaj.includes('channel')) return true;
+
+  return false;
+}
+
+// --- 5. YARDIMCI FONKSİYONLAR ---
 function htmlTemizle(text) {
   if (!text) return '';
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -134,12 +170,12 @@ function mesajAyristir(mesajMetni) {
   return { ham_mesaj: mesajMetni, arac_tipi: aracTipi, telefon: telefon };
 }
 
-// --- 5. BOTU BAŞLAT ---
+// --- 6. BOTU BAŞLAT ---
 async function botuBaslat() {
   // Önce Supabase'de yedek varsa yerele çek
   await oturumuSupabasedenYukle();
 
-  // Baileys'in en stabil yerel dosya sistemini kullan
+  // Baileys en stabil yerel dosya sistemini kullanır
   const { state, saveCreds } = await useMultiFileAuthState('auth_info');
   const { version } = await fetchLatestBaileysVersion();
 
@@ -190,11 +226,42 @@ async function botuBaslat() {
     if (!msg.message || msg.key.fromMe || !msg.key.remoteJid.endsWith('@g.us')) return;
 
     const mesajMetni = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
-    if (mesajMetni.length < 10) return;
 
-    console.log('📩 Yeni İlan Yakalandı: ' + mesajMetni.substring(0, 50) + '...');
+    // 1. SPAM VE ÇÖP MESAJ FİLTRESİ
+    if (spamMi(mesajMetni)) {
+      console.log('🚫 Çöp/Spam ilan engellendi:', mesajMetni.substring(0, 35) + '...');
+      return;
+    }
+
     const veriler = mesajAyristir(mesajMetni);
 
+    // 2. KESİN 1 SAAT (60 DAKİKA) MÜKERRER KONTROLÜ
+    try {
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+      let query = supabase
+        .from('ilanlar')
+        .select('id')
+        .gte('created_at', oneHourAgo);
+
+      if (veriler.telefon) {
+        query = query.eq('telefon', veriler.telefon);
+      } else {
+        query = query.eq('ham_mesaj', veriler.ham_mesaj);
+      }
+
+      const { data: mevcutIlanlar } = await query;
+
+      if (mevcutIlanlar && mevcutIlanlar.length > 0) {
+        console.log('⏳ Mükerrer İlan: Son 1 saat içinde eklendiği için atlandı.');
+        return;
+      }
+    } catch (err) {
+      console.error('⚠️ Mükerrer kontrol hatası:', err.message);
+    }
+
+    console.log('📩 Yeni Temiz İlan Yakalandı: ' + mesajMetni.substring(0, 50) + '...');
+
+    // 3. SUPABASE VERİTABANINA EKLE
     try {
       await supabase.from('ilanlar').insert([{
         ham_mesaj: veriler.ham_mesaj,
@@ -206,6 +273,7 @@ async function botuBaslat() {
       console.error('Supabase Hatası:', e.message);
     }
 
+    // 4. TELEGRAM KANALINA GÖNDER
     const telegramMesaj = 
 `📦 <b>YENİ NAKLİYE İLANI</b>
 
