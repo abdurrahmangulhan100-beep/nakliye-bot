@@ -65,16 +65,30 @@ async function oturumuSupabasedenYukle() {
   try {
     if (!fs.existsSync(AUTH_DIR)) fs.mkdirSync(AUTH_DIR, { recursive: true });
     
-    const { data } = await supabase.from('session').select('data').eq('id', 'auth_files').single();
+    // .maybeSingle() kullanarak boş veritabanı sorgularının hata fırlatmasını önlüyoruz
+    const { data, error } = await supabase.from('session').select('data').eq('id', 'auth_files').maybeSingle();
+    
+    if (error) {
+      console.error('⚠️ Supabase Okuma Hatası:', error.message);
+      return false;
+    }
+
     if (data && data.data) {
       const files = JSON.parse(data.data);
+      let dosyaSayisi = 0;
       for (const [filename, content] of Object.entries(files)) {
         fs.writeFileSync(path.join(AUTH_DIR, filename), content, 'utf8');
+        dosyaSayisi++;
       }
-      console.log('📁 Eski oturum dosyaları Supabase bulutundan yüklendi.');
+      console.log(`📁 Eski oturum dosyaları (${dosyaSayisi} adet) Supabase bulutundan başarıyla yüklendi.`);
+      return true;
+    } else {
+      console.log('ℹ️ Bulutta henüz kayıtlı oturum yok. İlk QR bekleniyor...');
+      return false;
     }
   } catch (e) {
-    console.log('ℹ️ Bulutta kayıtlı oturum bulunamadı, taze QR oluşturulacak.');
+    console.error('⚠️ Oturum yükleme sırasında beklenmeyen hata:', e.message);
+    return false;
   }
 }
 
@@ -82,8 +96,9 @@ async function oturumuSupabaseaYedekle() {
   try {
     if (!fs.existsSync(AUTH_DIR)) return;
     const fileNames = fs.readdirSync(AUTH_DIR);
-    const filesData = {};
+    if (fileNames.length === 0) return;
 
+    const filesData = {};
     for (const fileName of fileNames) {
       const filePath = path.join(AUTH_DIR, fileName);
       if (fs.statSync(filePath).isFile()) {
@@ -91,13 +106,18 @@ async function oturumuSupabaseaYedekle() {
       }
     }
 
-    await supabase.from('session').upsert({
+    const { error } = await supabase.from('session').upsert({
       id: 'auth_files',
       data: JSON.stringify(filesData)
     });
-    console.log('☁️ Oturum dosyaları güvenle Supabase veritabanına yedeklendi.');
+
+    if (error) {
+      console.error('⚠️ Supabase Yedekleme Hatası:', error.message);
+    } else {
+      console.log('☁️ Oturum dosyaları güvenle Supabase veritabanına yedeklendi.');
+    }
   } catch (e) {
-    console.error('⚠️ Supabase Yedekleme Hatası:', e.message);
+    console.error('⚠️ Supabase Istisna Hatası:', e.message);
   }
 }
 
@@ -128,42 +148,35 @@ const KARA_KELIMELER = [
 function spamMi(mesaj) {
   if (!mesaj) return true;
   
-  // Karakter sınırları: Çok kısa selamlaşmaları veya 2500 karaktere kadarki uzun ilanları kapsar
   if (mesaj.length < 15 || mesaj.length > 2500) return true;
   
   const kucukMesaj = mesaj.toLowerCase('tr-TR');
   
-  // Kara kelimelerden biri geçiyorsa engelle
   const karaKelimeVar = KARA_KELIMELER.some(kelime => kucukMesaj.includes(kelime.toLowerCase('tr-TR')));
   if (karaKelimeVar) return true;
 
-  // Web adresi veya WhatsApp kanal linki içeriyorsa engelle
   if (kucukMesaj.includes('http://') || kucukMesaj.includes('https://') || kucukMesaj.includes('channel')) return true;
 
   return false;
 }
 
 // --- 5. ULTRA HIZLI İKİNCİL (MÜKERRER) İLAN BLOKLAYICI (RAM CACHE) ---
-// Supabase sorgusu yapmadan Render RAM'inde 1 saatlik bloklama yapar.
 const ilaniSuresiDolanaKadarEngelle = new Map();
 const BIR_SAAT_MS = 60 * 60 * 1000;
 
 function mukerrerIlanMi(telefon, mesajMetni) {
   const simdi = Date.now();
-  // İletişim numarası varsa telefon ile, yoksa mesaj metninin ilk 60 karakteri ile benzersiz kimlik (Key) üret
   const anahtar = telefon ? `tel_${telefon}` : `txt_${mesajMetni.trim().substring(0, 60)}`;
 
   if (ilaniSuresiDolanaKadarEngelle.has(anahtar)) {
     const kayitZamani = ilaniSuresiDolanaKadarEngelle.get(anahtar);
     if (simdi - kayitZamani < BIR_SAAT_MS) {
-      return true; // 1 saat geçmedi, mükerrer mesaj!
+      return true;
     }
   }
 
-  // Yeni veya süresi dolmuş ilanı kaydet
   ilaniSuresiDolanaKadarEngelle.set(anahtar, simdi);
 
-  // RAM sızıntısını önlemek için 1 saatten eski kayıtları temizle
   if (ilaniSuresiDolanaKadarEngelle.size > 2000) {
     for (const [k, v] of ilaniSuresiDolanaKadarEngelle.entries()) {
       if (simdi - v >= BIR_SAAT_MS) {
@@ -195,7 +208,6 @@ async function telegramaGonder(metin) {
 }
 
 function mesajAyristir(mesajMetni) {
-  // Türkiye cep telefonu numarası tespiti
   const telRegex = /(?:(?:\+?90)|0)?\s*[5][0-9]{2}\s*[0-9]{3}\s*[0-9]{2}\s*[0-9]{2}/g;
   const telEsllesme = mesajMetni.match(telRegex);
   let telefon = telEsllesme ? telEsllesme[0].replace(/\s+/g, '').replace(/\+90/, '0') : null;
@@ -216,10 +228,11 @@ function mesajAyristir(mesajMetni) {
 
 // --- 7. BOTU BAŞLAT ---
 async function botuBaslat() {
-  // Önce Supabase'de yedek varsa yerele çek
+  console.log('🔄 Oturum dosyaları kontrol ediliyor...');
+  
+  // Supabase'den yedekleri indir ve tamamen bitmesini bekle
   await oturumuSupabasedenYukle();
 
-  // Baileys en stabil yerel dosya sistemini kullanır
   const { state, saveCreds } = await useMultiFileAuthState('auth_info');
   const { version } = await fetchLatestBaileysVersion();
 
@@ -234,7 +247,7 @@ async function botuBaslat() {
 
   sock.ev.on('creds.update', async () => {
     await saveCreds();
-    await oturumuSupabaseaYedekle(); // Her anahtar değişiminde Supabase'e sync et
+    await oturumuSupabaseaYedekle(); // WhatsApp her kimlik güncellediğinde Supabase'e yedekler
   });
 
   sock.ev.on('connection.update', async (update) => {
@@ -271,14 +284,14 @@ async function botuBaslat() {
 
     const mesajMetni = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
 
-    // 1. SPAM VE ÇÖP MESAJ FİLTRESİ (0 ms - Ağ Yükü Yok)
+    // 1. SPAM VE ÇÖP MESAJ FİLTRESİ
     if (spamMi(mesajMetni)) {
       return;
     }
 
     const veriler = mesajAyristir(mesajMetni);
 
-    // 2. KESİN 1 SAAT (60 DAKİKA) MÜKERRER KONTROLÜ (RAM Seviyesinde Hızlı Kontrol)
+    // 2. KESİN 1 SAAT (60 DAKİKA) MÜKERRER KONTROLÜ
     if (mukerrerIlanMi(veriler.telefon, veriler.ham_mesaj)) {
       console.log('⏳ Mükerrer İlan: Son 1 saat içinde yayınlandığı için atlandı (' + (veriler.telefon || 'Telefon yok') + ')');
       return;
