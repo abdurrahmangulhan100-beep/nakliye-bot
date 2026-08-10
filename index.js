@@ -119,16 +119,22 @@ const KARA_KELIMELER = [
   'devren',
   'eleman',
   'dükkan',
-  'şoför aranıyor'
+  'şoför aranıyor',
+  'sohbet',
+  'grup kuralları',
+  'admin'
 ];
 
 function spamMi(mesaj) {
-  if (!mesaj || mesaj.length < 15) return true; // Çok kısa mesajlar engellenir
+  if (!mesaj) return true;
   
-  const kucukMesaj = mesaj.toLowerCase();
+  // Karakter sınırları: Çok kısa selamlaşmaları veya 2500 karaktere kadarki uzun ilanları kapsar
+  if (mesaj.length < 15 || mesaj.length > 2500) return true;
+  
+  const kucukMesaj = mesaj.toLowerCase('tr-TR');
   
   // Kara kelimelerden biri geçiyorsa engelle
-  const karaKelimeVar = KARA_KELIMELER.some(kelime => kucukMesaj.includes(kelime));
+  const karaKelimeVar = KARA_KELIMELER.some(kelime => kucukMesaj.includes(kelime.toLowerCase('tr-TR')));
   if (karaKelimeVar) return true;
 
   // Web adresi veya WhatsApp kanal linki içeriyorsa engelle
@@ -137,7 +143,39 @@ function spamMi(mesaj) {
   return false;
 }
 
-// --- 5. YARDIMCI FONKSİYONLAR ---
+// --- 5. ULTRA HIZLI İKİNCİL (MÜKERRER) İLAN BLOKLAYICI (RAM CACHE) ---
+// Supabase sorgusu yapmadan Render RAM'inde 1 saatlik bloklama yapar.
+const ilaniSuresiDolanaKadarEngelle = new Map();
+const BIR_SAAT_MS = 60 * 60 * 1000;
+
+function mukerrerIlanMi(telefon, mesajMetni) {
+  const simdi = Date.now();
+  // İletişim numarası varsa telefon ile, yoksa mesaj metninin ilk 60 karakteri ile benzersiz kimlik (Key) üret
+  const anahtar = telefon ? `tel_${telefon}` : `txt_${mesajMetni.trim().substring(0, 60)}`;
+
+  if (ilaniSuresiDolanaKadarEngelle.has(anahtar)) {
+    const kayitZamani = ilaniSuresiDolanaKadarEngelle.get(anahtar);
+    if (simdi - kayitZamani < BIR_SAAT_MS) {
+      return true; // 1 saat geçmedi, mükerrer mesaj!
+    }
+  }
+
+  // Yeni veya süresi dolmuş ilanı kaydet
+  ilaniSuresiDolanaKadarEngelle.set(anahtar, simdi);
+
+  // RAM sızıntısını önlemek için 1 saatten eski kayıtları temizle
+  if (ilaniSuresiDolanaKadarEngelle.size > 2000) {
+    for (const [k, v] of ilaniSuresiDolanaKadarEngelle.entries()) {
+      if (simdi - v >= BIR_SAAT_MS) {
+        ilaniSuresiDolanaKadarEngelle.delete(k);
+      }
+    }
+  }
+
+  return false;
+}
+
+// --- 6. YARDIMCI FONKSİYONLAR ---
 function htmlTemizle(text) {
   if (!text) return '';
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -157,20 +195,26 @@ async function telegramaGonder(metin) {
 }
 
 function mesajAyristir(mesajMetni) {
+  // Türkiye cep telefonu numarası tespiti
   const telRegex = /(?:(?:\+?90)|0)?\s*[5][0-9]{2}\s*[0-9]{3}\s*[0-9]{2}\s*[0-9]{2}/g;
   const telEsllesme = mesajMetni.match(telRegex);
   let telefon = telEsllesme ? telEsllesme[0].replace(/\s+/g, '').replace(/\+90/, '0') : null;
 
   let aracTipi = 'Belirtilmedi';
-  const alt = mesajMetni.toLowerCase();
+  const alt = mesajMetni.toLowerCase('tr-TR');
+  
   if (alt.includes('tır') || alt.includes('tir')) aracTipi = '🚛 TIR';
   else if (alt.includes('kamyonet')) aracTipi = '🛻 Kamyonet';
   else if (alt.includes('kamyon')) aracTipi = '🚚 Kamyon';
+  else if (alt.includes('kırkayak') || alt.includes('kirkayak')) aracTipi = '🚛 Kırkayak';
+  else if (alt.includes('damper')) aracTipi = '🚜 Damperli';
+  else if (alt.includes('dorse')) aracTipi = '🚛 Dorse';
+  else if (alt.includes('panelvan')) aracTipi = '🚐 Panelvan';
   
   return { ham_mesaj: mesajMetni, arac_tipi: aracTipi, telefon: telefon };
 }
 
-// --- 6. BOTU BAŞLAT ---
+// --- 7. BOTU BAŞLAT ---
 async function botuBaslat() {
   // Önce Supabase'de yedek varsa yerele çek
   await oturumuSupabasedenYukle();
@@ -227,36 +271,17 @@ async function botuBaslat() {
 
     const mesajMetni = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
 
-    // 1. SPAM VE ÇÖP MESAJ FİLTRESİ
+    // 1. SPAM VE ÇÖP MESAJ FİLTRESİ (0 ms - Ağ Yükü Yok)
     if (spamMi(mesajMetni)) {
-      console.log('🚫 Çöp/Spam ilan engellendi:', mesajMetni.substring(0, 35) + '...');
       return;
     }
 
     const veriler = mesajAyristir(mesajMetni);
 
-    // 2. KESİN 1 SAAT (60 DAKİKA) MÜKERRER KONTROLÜ
-    try {
-      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-      let query = supabase
-        .from('ilanlar')
-        .select('id')
-        .gte('created_at', oneHourAgo);
-
-      if (veriler.telefon) {
-        query = query.eq('telefon', veriler.telefon);
-      } else {
-        query = query.eq('ham_mesaj', veriler.ham_mesaj);
-      }
-
-      const { data: mevcutIlanlar } = await query;
-
-      if (mevcutIlanlar && mevcutIlanlar.length > 0) {
-        console.log('⏳ Mükerrer İlan: Son 1 saat içinde eklendiği için atlandı.');
-        return;
-      }
-    } catch (err) {
-      console.error('⚠️ Mükerrer kontrol hatası:', err.message);
+    // 2. KESİN 1 SAAT (60 DAKİKA) MÜKERRER KONTROLÜ (RAM Seviyesinde Hızlı Kontrol)
+    if (mukerrerIlanMi(veriler.telefon, veriler.ham_mesaj)) {
+      console.log('⏳ Mükerrer İlan: Son 1 saat içinde yayınlandığı için atlandı (' + (veriler.telefon || 'Telefon yok') + ')');
+      return;
     }
 
     console.log('📩 Yeni Temiz İlan Yakalandı: ' + mesajMetni.substring(0, 50) + '...');
