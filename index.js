@@ -13,34 +13,49 @@ const path = require('path');
 
 const AUTH_DIR = path.join(__dirname, 'auth_info');
 
-// --- 1. QR KOD WEB SUNUCUSU ---
+// --- 1. QR KOD VE EŞLEŞTİRME KODU WEB SUNUCUSU ---
 let qrDataURL = null;
+let currentPairingCode = null;
 
 const PORT = process.env.PORT || 8080;
 http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-  if (req.url === '/qr' && qrDataURL) {
+  if (req.url === '/qr') {
     res.end(`
       <!DOCTYPE html>
       <html>
         <head>
-          <title>WhatsApp QR Kod</title>
+          <title>WhatsApp Bağlantı Paneli</title>
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <style>
-            body { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; background-color: #f0f2f5; font-family: sans-serif; }
-            .card { background: white; padding: 30px; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); text-align: center; }
-            img { width: 280px; height: 280px; border: 4px solid #25d366; border-radius: 12px; padding: 10px; background: #fff; }
+            body { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background-color: #f0f2f5; font-family: sans-serif; }
+            .card { background: white; padding: 30px; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); text-align: center; max-width: 90%; width: 340px; }
+            img { width: 250px; height: 250px; border: 4px solid #25d366; border-radius: 12px; padding: 10px; background: #fff; }
             h2 { color: #075e54; margin-bottom: 8px; }
             p { color: #666; font-size: 14px; margin-top: 15px; }
             .badge { background: #e7fce8; color: #0f5132; padding: 6px 14px; border-radius: 20px; font-weight: bold; font-size: 13px; display: inline-block; margin-bottom: 15px; }
+            .code-box { background: #111b21; color: #00a884; font-size: 28px; font-weight: bold; letter-spacing: 4px; padding: 15px; border-radius: 10px; margin: 15px 0; font-family: monospace; }
           </style>
         </head>
         <body>
           <div class="card">
             <h2>Nakliye Cepte Bot</h2>
-            <div class="badge">⚡ Hibrit Dosya Modu Aktif</div><br>
-            <img src="${qrDataURL}" alt="WhatsApp QR Code" />
-            <p><b>WhatsApp -> Bağlı Cihazlar -> Cihaz Bağla</b> diyerek okutun.</p>
+            <div class="badge">⚡ Bağlantı Paneli</div><br>
+            
+            ${currentPairingCode ? `
+              <p><b>📱 EŞLEŞTİRME KODUNUZ:</b></p>
+              <div class="code-box">${currentPairingCode}</div>
+              <p>WhatsApp -> <b>Bağlı Cihazlar</b> -> <b>Cihaz Bağla</b> -> <b>Telefon Numarası İle Bağla</b> adımlarını izleyip bu kodu girin.</p>
+            ` : ''}
+
+            ${qrDataURL ? `
+              <img src="${qrDataURL}" alt="WhatsApp QR Code" />
+              <p>VEYA kamera ile QR kodu okutun.</p>
+            ` : ''}
+
+            ${!currentPairingCode && !qrDataURL ? `
+              <p>🟢 Bot bağlı veya QR/Kod oluşturuluyor... Sayfayı yenileyin.</p>
+            ` : ''}
           </div>
         </body>
       </html>
@@ -52,11 +67,14 @@ http.createServer((req, res) => {
   console.log(`🌐 Sunucu ${PORT} portunda çalışıyor.`);
 });
 
-// --- 2. SUPABASE & TELEGRAM AYARLARI ---
+// --- 2. SUPABASE, TELEGRAM VE TELEFON AYARLARI ---
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://fkcmlkbpwpjgdamhtegn.supabase.co'; 
 const SUPABASE_KEY = process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZrY21sa2Jwd3BqZ2RhbWh0egnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYyMDkzODgsImV4cCI6MjEwMTc4NTM4OH0.2IQYeMZsICHPGQKBT3M8NCDdQXaqsTMsVxOFcTOrTTw';
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8624611315:AAHnYXg9RaaWjumP6jeCBzogVNYe_XQ13xc'; 
 const TELEGRAM_KANAL_ID = process.env.TELEGRAM_KANAL_ID || '-1003776147836'; 
+
+// Kendi WhatsApp telefon numaranızı buraya yazın (veya Render Environment Variables kısmına PHONE_NUMBER ekleyin)
+const PHONE_NUMBER = process.env.PHONE_NUMBER || '905XXXXXXXXX'; 
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -65,7 +83,6 @@ async function oturumuSupabasedenYukle() {
   try {
     if (!fs.existsSync(AUTH_DIR)) fs.mkdirSync(AUTH_DIR, { recursive: true });
     
-    // .maybeSingle() kullanarak boş veritabanı sorgularının hata fırlatmasını önlüyoruz
     const { data, error } = await supabase.from('session').select('data').eq('id', 'auth_files').maybeSingle();
     
     if (error) {
@@ -83,7 +100,7 @@ async function oturumuSupabasedenYukle() {
       console.log(`📁 Eski oturum dosyaları (${dosyaSayisi} adet) Supabase bulutundan başarıyla yüklendi.`);
       return true;
     } else {
-      console.log('ℹ️ Bulutta henüz kayıtlı oturum yok. İlk QR bekleniyor...');
+      console.log('ℹ️ Bulutta henüz kayıtlı oturum yok. İlk bağlantı bekleniyor...');
       return false;
     }
   } catch (e) {
@@ -117,7 +134,7 @@ async function oturumuSupabaseaYedekle() {
       console.log('☁️ Oturum dosyaları güvenle Supabase veritabanına yedeklendi.');
     }
   } catch (e) {
-    console.error('⚠️ Supabase Istisna Hatası:', e.message);
+    console.error('⚠️ Supabase İstisna Hatası:', e.message);
   }
 }
 
@@ -240,10 +257,28 @@ async function botuBaslat() {
     version,
     auth: state,
     printQRInTerminal: false,
-    browser: Browsers.macOS('Desktop'),
+    browser: Browsers.ubuntu('Chrome'), // Pairing code uyumluluğu için Ubuntu Chrome seçildi
     syncFullHistory: false,
     shouldSyncHistory: () => false
   });
+
+  // Oturum yoksa Pairing Code (Eşleştirme Kodu) Üret
+  if (!sock.authState.creds.registered && PHONE_NUMBER && PHONE_NUMBER !== '905XXXXXXXXX') {
+    setTimeout(async () => {
+      try {
+        const temizTel = PHONE_NUMBER.replace(/[^0-9]/g, '');
+        const code = await sock.requestPairingCode(temizTel);
+        currentPairingCode = code?.match(/.{1,4}/g)?.join("-") || code;
+        
+        console.log('\n==================================================');
+        console.log(`👉 EŞLEŞTİRME KODUNUZ: ${currentPairingCode}`);
+        console.log('   /qr adresinden veya yukarıdaki kodla eşleştirin.');
+        console.log('==================================================\n');
+      } catch (err) {
+        console.error('⚠️ Pairing Code üretilemedi:', err.message);
+      }
+    }, 3000);
+  }
 
   sock.ev.on('creds.update', async () => {
     await saveCreds();
@@ -260,6 +295,7 @@ async function botuBaslat() {
     
     if (connection === 'open') {
       qrDataURL = null;
+      currentPairingCode = null;
       console.log('\n==================================================');
       console.log('✅ WHATSAPP BOTU ANINDA BAĞLANDI VE CANLI DİNLİYOR!');
       console.log('==================================================\n');
