@@ -69,7 +69,7 @@ http.createServer((req, res) => {
 
 // --- 2. SUPABASE, TELEGRAM VE TELEFON AYARLARI ---
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://fkcmlkbpwpjgdamhtegn.supabase.co'; 
-const SUPABASE_KEY = process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZrY21sa2Jwd3BqZ2RhbWh0egnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYyMDkzODgsImV4cCI6MjEwMTc4NTM4OH0.2IQYeMZsICHPGQKBT3M8NCDdQXaqsTMsVxOFcTOrTTw';
+const SUPABASE_KEY = process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZrY21sa2Jwd3BqZ2RhbWh0ZWduIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYyMDkzODgsImV4cCI6MjEwMTc4NTM4OH0.2IQYeMZsICHPGQKBT3M8NCDdQXaqsTMsVxOFcTOrTTw';
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8624611315:AAHnYXg9RaaWjumP6jeCBzogVNYe_XQ13xc'; 
 const TELEGRAM_KANAL_ID = process.env.TELEGRAM_KANAL_ID || '-1003776147836'; 
 
@@ -342,7 +342,7 @@ async function botuBaslat() {
 
     console.log('📩 Yeni Temiz İlan Yakalandı: ' + mesajMetni.substring(0, 40) + '...');
 
-    // --- DÜZELTİLEN SUPABASE EKLEME BLOĞU ---
+    // SUPABASE'E VERİ KAYDETME
     const { data, error } = await supabase.from('ilanlar').insert([{
       ham_mesaj: veriler.ham_mesaj,
       nereden: veriler.nereden,
@@ -352,9 +352,9 @@ async function botuBaslat() {
     }]);
 
     if (error) {
-      console.error('❌ SUPABASE GERÇEK HATA METNİ:', error.message, error.details, error.hint);
+      console.error('❌ SUPABASE EKLEME HATASI:', error.message);
     } else {
-      console.log('⚡ Supabase veritabanına BAŞARIYLA eklendi!');
+      console.log('⚡ Supabase veritabanına BAŞARIYLA eklendi! (Nereden: ' + (veriler.nereden || '-') + ' -> Nereye: ' + (veriler.nereye || '-') + ')');
     }
 
     // Telegram Bildirimi
