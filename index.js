@@ -73,7 +73,7 @@ const SUPABASE_KEY = process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6Ik
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8624611315:AAHnYXg9RaaWjumP6jeCBzogVNYe_XQ13xc'; 
 const TELEGRAM_KANAL_ID = process.env.TELEGRAM_KANAL_ID || '-1003776147836'; 
 
-// Kendi WhatsApp telefon numaranızı buraya yazın (veya Render Environment Variables kısmına PHONE_NUMBER ekleyin)
+// Kendi WhatsApp telefon numaranızı buraya yazın
 const PHONE_NUMBER = process.env.PHONE_NUMBER || '905XXXXXXXXX'; 
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -205,7 +205,7 @@ function mukerrerIlanMi(telefon, mesajMetni) {
   return false;
 }
 
-// --- 6. YARDIMCI FONKSİYONLAR ---
+// --- 6. YARDIMCI FONKSİYONLAR & ŞEHİR PARSER (AYRIŞTIRICI) ---
 function htmlTemizle(text) {
   if (!text) return '';
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -224,11 +224,25 @@ async function telegramaGonder(metin) {
   }
 }
 
+// Türkiye Şehir Listesi (Ayrıştırma için)
+const SEHIRLER = [
+  "Adana", "Adıyaman", "Afyonkarahisar", "Ağrı", "Amasya", "Ankara", "Antalya", "Artvin", "Aydın", "Balıkesir",
+  "Bilecik", "Bingöl", "Bitlis", "Bolu", "Burdur", "Bursa", "Çanakkale", "Çankırı", "Çorum", "Denizli",
+  "Diyarbakır", "Edirne", "Elazığ", "Erzincan", "Erzurum", "Eskişehir", "Gaziantep", "Giresun", "Gümüşhane", "Hakkari",
+  "Hatay", "Isparta", "Mersin", "İstanbul", "İzmir", "Kars", "Kastamonu", "Kayseri", "Kırklareli", "Kırşehir",
+  "Kocaeli", "Konya", "Kütahya", "Malatya", "Manisa", "Kahramanmaraş", "Mardin", "Muğla", "Muş", "Nevşehir",
+  "Niğde", "Ordu", "Rize", "Sakarya", "Samsun", "Siirt", "Sinop", "Sivas", "Tekirdağ", "Tokat",
+  "Trabzon", "Tunceli", "Şanlıurfa", "Uşak", "Van", "Yozgat", "Zonguldak", "Aksaray", "Bayburt", "Karaman",
+  "Kırıkkale", "Batman", "Şırnak", "Bartın", "Ardahan", "Iğdır", "Yalova", "Karabük", "Kilis", "Osmaniye", "Düzce"
+];
+
 function mesajAyristir(mesajMetni) {
+  // Telefon ayıklama
   const telRegex = /(?:(?:\+?90)|0)?\s*[5][0-9]{2}\s*[0-9]{3}\s*[0-9]{2}\s*[0-9]{2}/g;
   const telEsllesme = mesajMetni.match(telRegex);
   let telefon = telEsllesme ? telEsllesme[0].replace(/\s+/g, '').replace(/\+90/, '0') : null;
 
+  // Araç Tipi ayıklama
   let aracTipi = 'Belirtilmedi';
   const alt = mesajMetni.toLowerCase('tr-TR');
   
@@ -239,15 +253,43 @@ function mesajAyristir(mesajMetni) {
   else if (alt.includes('damper')) aracTipi = '🚜 Damperli';
   else if (alt.includes('dorse')) aracTipi = '🚛 Dorse';
   else if (alt.includes('panelvan')) aracTipi = '🚐 Panelvan';
-  
-  return { ham_mesaj: mesajMetni, arac_tipi: aracTipi, telefon: telefon };
+
+  // Nereden ve Nereye Şehirlerini Ayıklama
+  let nereden = null;
+  let nereye = null;
+
+  const bulunanSehirler = [];
+  SEHIRLER.forEach(sehir => {
+    const regex = new RegExp(`\\b${sehir}\\b`, 'i');
+    const match = mesajMetni.match(regex);
+    if (match) {
+      bulunanSehirler.push({ sehir, index: match.index });
+    }
+  });
+
+  // Metin içerisindeki geçiş sırasına göre şehirleri sırala
+  bulunanSehirler.sort((a, b) => a.index - b.index);
+
+  if (bulunanSehirler.length >= 2) {
+    nereden = bulunanSehirler[0].sehir;
+    nereye = bulunanSehirler[1].sehir;
+  } else if (bulunanSehirler.length === 1) {
+    nereden = bulunanSehirler[0].sehir;
+  }
+
+  return { 
+    ham_mesaj: mesajMetni, 
+    arac_tipi: aracTipi, 
+    telefon: telefon,
+    nereden: nereden,
+    nereye: nereye
+  };
 }
 
 // --- 7. BOTU BAŞLAT ---
 async function botuBaslat() {
   console.log('🔄 Oturum dosyaları kontrol ediliyor...');
   
-  // Supabase'den yedekleri indir ve tamamen bitmesini bekle
   await oturumuSupabasedenYukle();
 
   const { state, saveCreds } = await useMultiFileAuthState('auth_info');
@@ -257,12 +299,11 @@ async function botuBaslat() {
     version,
     auth: state,
     printQRInTerminal: false,
-    browser: Browsers.ubuntu('Chrome'), // Pairing code uyumluluğu için Ubuntu Chrome seçildi
+    browser: Browsers.ubuntu('Chrome'),
     syncFullHistory: false,
     shouldSyncHistory: () => false
   });
 
-  // Oturum yoksa Pairing Code (Eşleştirme Kodu) Üret
   if (!sock.authState.creds.registered && PHONE_NUMBER && PHONE_NUMBER !== '905XXXXXXXXX') {
     setTimeout(async () => {
       try {
@@ -282,7 +323,7 @@ async function botuBaslat() {
 
   sock.ev.on('creds.update', async () => {
     await saveCreds();
-    await oturumuSupabaseaYedekle(); // WhatsApp her kimlik güncellediğinde Supabase'e yedekler
+    await oturumuSupabaseaYedekle();
   });
 
   sock.ev.on('connection.update', async (update) => {
@@ -335,14 +376,16 @@ async function botuBaslat() {
 
     console.log('📩 Yeni Temiz İlan Yakalandı: ' + mesajMetni.substring(0, 50) + '...');
 
-    // 3. SUPABASE VERİTABANINA EKLE
+    // 3. SUPABASE VERİTABANINA EKLE (GÜNCELLENEN KISIM)
     try {
       await supabase.from('ilanlar').insert([{
         ham_mesaj: veriler.ham_mesaj,
+        nereden: veriler.nereden,
+        nereye: veriler.nereye,
         arac_tipi: veriler.arac_tipi !== 'Belirtilmedi' ? veriler.arac_tipi : null,
         telefon: veriler.telefon
       }]);
-      console.log('⚡ Supabase veritabanına eklendi.');
+      console.log('⚡ Supabase veritabanına eklendi (Şehirler: ' + (veriler.nereden || '-') + ' -> ' + (veriler.nereye || '-') + ').');
     } catch (e) {
       console.error('Supabase Hatası:', e.message);
     }
@@ -351,6 +394,7 @@ async function botuBaslat() {
     const telegramMesaj = 
 `📦 <b>YENİ NAKLİYE İLANI</b>
 
+📍 <b>Rota:</b> ${veriler.nereden || 'Belirtilmedi'} ➡️ ${veriler.nereye || 'Belirtilmedi'}
 📝 <b>İlan Detayı:</b>
 ${htmlTemizle(veriler.ham_mesaj)}
 
