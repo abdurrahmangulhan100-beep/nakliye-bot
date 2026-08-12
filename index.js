@@ -73,7 +73,6 @@ const SUPABASE_KEY = process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6Ik
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8624611315:AAHnYXg9RaaWjumP6jeCBzogVNYe_XQ13xc'; 
 const TELEGRAM_KANAL_ID = process.env.TELEGRAM_KANAL_ID || '-1003776147836'; 
 
-// Kendi WhatsApp telefon numaranızı buraya yazın
 const PHONE_NUMBER = process.env.PHONE_NUMBER || '905XXXXXXXXX'; 
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -140,35 +139,17 @@ async function oturumuSupabaseaYedekle() {
 
 // --- 4. SPAM VE İLGİSİZ MESAJ FİLTRESİ ---
 const KARA_KELIMELER = [
-  'asansör',
-  'mobilya',
-  'evden eve',
-  'kanalını takip edin',
-  'whatsapp.com/channel',
-  'taşıma görevi',
-  'planlanan taşıma',
-  'parana sahip çık',
-  'şarkışla',
-  'lütfen whatsapp üzerinden',
-  'mesaj bırakın',
-  'satılık',
-  'kiralık',
-  'devren',
-  'eleman',
-  'dükkan',
-  'şoför aranıyor',
-  'sohbet',
-  'grup kuralları',
-  'admin'
+  'asansör', 'mobilya', 'evden eve', 'kanalını takip edin', 'whatsapp.com/channel',
+  'taşıma görevi', 'planlanan taşıma', 'parana sahip çık', 'şarkışla', 'lütfen whatsapp üzerinden',
+  'mesaj bırakın', 'satılık', 'kiralık', 'devren', 'eleman', 'dükkan', 'şoför aranıyor',
+  'sohbet', 'grup kuralları', 'admin'
 ];
 
 function spamMi(mesaj) {
   if (!mesaj) return true;
-  
   if (mesaj.length < 15 || mesaj.length > 2500) return true;
   
   const kucukMesaj = mesaj.toLowerCase('tr-TR');
-  
   const karaKelimeVar = KARA_KELIMELER.some(kelime => kucukMesaj.includes(kelime.toLowerCase('tr-TR')));
   if (karaKelimeVar) return true;
 
@@ -205,7 +186,7 @@ function mukerrerIlanMi(telefon, mesajMetni) {
   return false;
 }
 
-// --- 6. YARDIMCI FONKSİYONLAR & ŞEHİR PARSER (AYRIŞTIRICI) ---
+// --- 6. YARDIMCI FONKSİYONLAR & ŞEHİR PARSER ---
 function htmlTemizle(text) {
   if (!text) return '';
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -224,7 +205,6 @@ async function telegramaGonder(metin) {
   }
 }
 
-// Türkiye Şehir Listesi (Ayrıştırma için)
 const SEHIRLER = [
   "Adana", "Adıyaman", "Afyonkarahisar", "Ağrı", "Amasya", "Ankara", "Antalya", "Artvin", "Aydın", "Balıkesir",
   "Bilecik", "Bingöl", "Bitlis", "Bolu", "Burdur", "Bursa", "Çanakkale", "Çankırı", "Çorum", "Denizli",
@@ -237,24 +217,21 @@ const SEHIRLER = [
 ];
 
 function mesajAyristir(mesajMetni) {
-  // Telefon ayıklama
   const telRegex = /(?:(?:\+?90)|0)?\s*[5][0-9]{2}\s*[0-9]{3}\s*[0-9]{2}\s*[0-9]{2}/g;
   const telEsllesme = mesajMetni.match(telRegex);
   let telefon = telEsllesme ? telEsllesme[0].replace(/\s+/g, '').replace(/\+90/, '0') : null;
 
-  // Araç Tipi ayıklama
   let aracTipi = 'Belirtilmedi';
   const alt = mesajMetni.toLowerCase('tr-TR');
   
-  if (alt.includes('tır') || alt.includes('tir')) aracTipi = '🚛 TIR';
-  else if (alt.includes('kamyonet')) aracTipi = '🛻 Kamyonet';
-  else if (alt.includes('kamyon')) aracTipi = '🚚 Kamyon';
-  else if (alt.includes('kırkayak') || alt.includes('kirkayak')) aracTipi = '🚛 Kırkayak';
-  else if (alt.includes('damper')) aracTipi = '🚜 Damperli';
-  else if (alt.includes('dorse')) aracTipi = '🚛 Dorse';
-  else if (alt.includes('panelvan')) aracTipi = '🚐 Panelvan';
+  if (alt.includes('tır') || alt.includes('tir')) aracTipi = 'TIR';
+  else if (alt.includes('kamyonet')) aracTipi = 'Kamyonet';
+  else if (alt.includes('kamyon')) aracTipi = 'Kamyon';
+  else if (alt.includes('kırkayak') || alt.includes('kirkayak')) aracTipi = 'Kırkayak';
+  else if (alt.includes('damper')) aracTipi = 'Damperli';
+  else if (alt.includes('dorse')) aracTipi = 'Dorse';
+  else if (alt.includes('panelvan')) aracTipi = 'Panelvan';
 
-  // Nereden ve Nereye Şehirlerini Ayıklama
   let nereden = null;
   let nereye = null;
 
@@ -267,7 +244,6 @@ function mesajAyristir(mesajMetni) {
     }
   });
 
-  // Metin içerisindeki geçiş sırasına göre şehirleri sırala
   bulunanSehirler.sort((a, b) => a.index - b.index);
 
   if (bulunanSehirler.length >= 2) {
@@ -289,7 +265,6 @@ function mesajAyristir(mesajMetni) {
 // --- 7. BOTU BAŞLAT ---
 async function botuBaslat() {
   console.log('🔄 Oturum dosyaları kontrol ediliyor...');
-  
   await oturumuSupabasedenYukle();
 
   const { state, saveCreds } = await useMultiFileAuthState('auth_info');
@@ -313,7 +288,6 @@ async function botuBaslat() {
         
         console.log('\n==================================================');
         console.log(`👉 EŞLEŞTİRME KODUNUZ: ${currentPairingCode}`);
-        console.log('   /qr adresinden veya yukarıdaki kodla eşleştirin.');
         console.log('==================================================\n');
       } catch (err) {
         console.error('⚠️ Pairing Code üretilemedi:', err.message);
@@ -328,11 +302,7 @@ async function botuBaslat() {
 
   sock.ev.on('connection.update', async (update) => {
     const { connection, qr, lastDisconnect } = update;
-    
-    if (qr) {
-      qrDataURL = await QRCode.toDataURL(qr);
-      console.log('👉 QR Kod hazır! /qr sayfasından okutun.');
-    }
+    if (qr) qrDataURL = await QRCode.toDataURL(qr);
     
     if (connection === 'open') {
       qrDataURL = null;
@@ -361,36 +331,33 @@ async function botuBaslat() {
 
     const mesajMetni = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
 
-    // 1. SPAM VE ÇÖP MESAJ FİLTRESİ
-    if (spamMi(mesajMetni)) {
-      return;
-    }
+    if (spamMi(mesajMetni)) return;
 
     const veriler = mesajAyristir(mesajMetni);
 
-    // 2. KESİN 1 SAAT (60 DAKİKA) MÜKERRER KONTROLÜ
     if (mukerrerIlanMi(veriler.telefon, veriler.ham_mesaj)) {
-      console.log('⏳ Mükerrer İlan: Son 1 saat içinde yayınlandığı için atlandı (' + (veriler.telefon || 'Telefon yok') + ')');
+      console.log('⏳ Mükerrer İlan atlandı.');
       return;
     }
 
-    console.log('📩 Yeni Temiz İlan Yakalandı: ' + mesajMetni.substring(0, 50) + '...');
+    console.log('📩 Yeni Temiz İlan Yakalandı: ' + mesajMetni.substring(0, 40) + '...');
 
-    // 3. SUPABASE VERİTABANINA EKLE (GÜNCELLENEN KISIM)
-    try {
-      await supabase.from('ilanlar').insert([{
-        ham_mesaj: veriler.ham_mesaj,
-        nereden: veriler.nereden,
-        nereye: veriler.nereye,
-        arac_tipi: veriler.arac_tipi !== 'Belirtilmedi' ? veriler.arac_tipi : null,
-        telefon: veriler.telefon
-      }]);
-      console.log('⚡ Supabase veritabanına eklendi (Şehirler: ' + (veriler.nereden || '-') + ' -> ' + (veriler.nereye || '-') + ').');
-    } catch (e) {
-      console.error('Supabase Hatası:', e.message);
+    // --- DÜZELTİLEN SUPABASE EKLEME BLOĞU ---
+    const { data, error } = await supabase.from('ilanlar').insert([{
+      ham_mesaj: veriler.ham_mesaj,
+      nereden: veriler.nereden,
+      nereye: veriler.nereye,
+      arac_tipi: veriler.arac_tipi !== 'Belirtilmedi' ? veriler.arac_tipi : null,
+      telefon: veriler.telefon
+    }]);
+
+    if (error) {
+      console.error('❌ SUPABASE GERÇEK HATA METNİ:', error.message, error.details, error.hint);
+    } else {
+      console.log('⚡ Supabase veritabanına BAŞARIYLA eklendi!');
     }
 
-    // 4. TELEGRAM KANALINA GÖNDER
+    // Telegram Bildirimi
     const telegramMesaj = 
 `📦 <b>YENİ NAKLİYE İLANI</b>
 
