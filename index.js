@@ -10,7 +10,7 @@ const QRCode = require('qrcode');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto'); // Mükerrer metin hash kontrolü için eklendi
+const crypto = require('crypto');
 
 const AUTH_DIR = path.join(__dirname, 'auth_info');
 
@@ -70,7 +70,7 @@ http.createServer((req, res) => {
 
 // --- 2. SUPABASE, TELEGRAM VE TELEFON AYARLARI ---
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://fkcmlkbpwpjgdamhtegn.supabase.co'; 
-const SUPABASE_KEY = process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZrY21sa2Jwd3BqZ2RhbWh0ZWduIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYyMDkzODgsImV4cCI6MjEwMTc4NTM4OH0.2IQYeMZsICHPGQKBT3M8NCDdQXaqsTMsVxOFcTOrTTw';
+const SUPABASE_KEY = process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZrY21sa2Jwd3BqZ2RhbWh0egnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYyMDkzODgsImV4cCI6MjEwMTc4NTM4OH0.2IQYeMZsICHPGQKBT3M8NCDdQXaqsTMsVxOFcTOrTTw';
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8624611315:AAHnYXg9RaaWjumP6jeCBzogVNYe_XQ13xc'; 
 const TELEGRAM_KANAL_ID = process.env.TELEGRAM_KANAL_ID || '-1003776147836'; 
 
@@ -138,7 +138,41 @@ async function oturumuSupabaseaYedekle() {
   }
 }
 
-// --- 4. SPAM VE İLGİSİZ MESAJ FİLTRESİ ---
+// --- 4. DERİN MESAJ AYRIŞTIRICI (EKSİKSİZ VERİ OKUMA) ---
+function mesajMetniniCikar(messageObj) {
+  if (!messageObj) return '';
+  
+  let msg = messageObj;
+
+  // WhatsApp Süreli / Kaybolan Mesaj (Ephemeral) katmanını aç
+  if (msg.ephemeralMessage?.message) {
+    msg = msg.ephemeralMessage.message;
+  }
+  // ViewOnce / Görsel / Belge katmanlarını aç
+  if (msg.viewOnceMessage?.message) {
+    msg = msg.viewOnceMessage.message;
+  }
+  if (msg.viewOnceMessageV2?.message) {
+    msg = msg.viewOnceMessageV2.message;
+  }
+  if (msg.documentWithCaptionMessage?.message) {
+    msg = msg.documentWithCaptionMessage.message;
+  }
+
+  // Olası tüm metin kaynaklarını tara
+  return (
+    msg?.conversation ||
+    msg?.extendedTextMessage?.text ||
+    msg?.imageMessage?.caption ||
+    msg?.videoMessage?.caption ||
+    msg?.documentMessage?.caption ||
+    msg?.protocolMessage?.editedMessage?.conversation ||
+    msg?.protocolMessage?.editedMessage?.extendedTextMessage?.text ||
+    ''
+  );
+}
+
+// --- 5. SPAM VE İLGİSİZ MESAJ FİLTRESİ ---
 const KARA_KELIMELER = [
   'asansör', 'mobilya', 'evden eve', 'kanalını takip edin', 'whatsapp.com/channel',
   'taşıma görevi', 'planlanan taşıma', 'parana sahip çık', 'şarkışla', 'lütfen whatsapp üzerinden',
@@ -148,7 +182,7 @@ const KARA_KELIMELER = [
 
 function spamMi(mesaj) {
   if (!mesaj) return true;
-  if (mesaj.length < 15 || mesaj.length > 2500) return true;
+  if (mesaj.length < 10 || mesaj.length > 3000) return true;
   
   const kucukMesaj = mesaj.toLowerCase('tr-TR');
   const karaKelimeVar = KARA_KELIMELER.some(kelime => kucukMesaj.includes(kelime.toLowerCase('tr-TR')));
@@ -159,11 +193,12 @@ function spamMi(mesaj) {
   return false;
 }
 
-// --- 5. ULTRA HIZLI İKİNCİL (MÜKERRER) İLAN BLOKLAYICI (RAM CACHE) ---
+// --- 6. ULTRA HIZLI İKİNCİL (MÜKERRER) İLAN BLOKLAYICI (RAM CACHE) ---
 const ilaniSuresiDolanaKadarEngelle = new Map();
-const MESAJ_ENGEL_SURESI_MS = 30 * 60 * 1000; // Aynı mesaj 30 dakika boyunca tekrar yayınlanmaz
+const MESAJ_ENGEL_SURESI_MS = 20 * 60 * 1000; // Aynı BİREBİR içerikli ilan 20 dk tekrar kaydedilmez
 
-function mukerrerIlanMi(telefon, mesajMetni) {
+function mukerrerIlanMi(mesajMetni) {
+  if (!mesajMetni) return true;
   const simdi = Date.now();
   
   // Mesajın harf ve rakamlarını temize çekip benzersiz içerik anahtarı (MD5 Hash) üretiyoruz
@@ -171,21 +206,23 @@ function mukerrerIlanMi(telefon, mesajMetni) {
     .toLowerCase('tr-TR')
     .replace(/[^a-z0-9ğüşıöç]/g, '');
     
+  if (temizMetin.length < 8) return true;
+
   const mesajHash = crypto.createHash('md5').update(temizMetin).digest('hex');
   const anahtar = `msg_${mesajHash}`;
 
   if (ilaniSuresiDolanaKadarEngelle.has(anahtar)) {
     const kayitZamani = ilaniSuresiDolanaKadarEngelle.get(anahtar);
     if (simdi - kayitZamani < MESAJ_ENGEL_SURESI_MS) {
-      return true; // Birebir aynı ilan daha önce geldi, geç!
+      return true; // Birebir aynı içerik daha önce geldi
     }
   }
 
   // Yeni içerikli ilanı hafızaya al
   ilaniSuresiDolanaKadarEngelle.set(anahtar, simdi);
 
-  // Bellek temizliği (RAM şişmesini önler)
-  if (ilaniSuresiDolanaKadarEngelle.size > 3000) {
+  // Bellek temizliği (RAM koruması)
+  if (ilaniSuresiDolanaKadarEngelle.size > 4000) {
     for (const [k, v] of ilaniSuresiDolanaKadarEngelle.entries()) {
       if (simdi - v >= MESAJ_ENGEL_SURESI_MS) {
         ilaniSuresiDolanaKadarEngelle.delete(k);
@@ -196,7 +233,7 @@ function mukerrerIlanMi(telefon, mesajMetni) {
   return false;
 }
 
-// --- 6. YARDIMCI FONKSİYONLAR & ŞEHİR PARSER ---
+// --- 7. YARDIMCI FONKSİYONLAR & GELİŞMİŞ ŞEHİR/İLÇE PARSER ---
 function htmlTemizle(text) {
   if (!text) return '';
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -215,21 +252,35 @@ async function telegramaGonder(metin) {
   }
 }
 
-const SEHIRLER = [
-  "Adana", "Adıyaman", "Afyonkarahisar", "Ağrı", "Amasya", "Ankara", "Antalya", "Artvin", "Aydın", "Balıkesir",
+// 81 İL VE SIK KULLANILAN LOJİSTİK İLÇELERİ / MERKEZLERİ
+const LOKASYONLAR = [
+  // 81 İl
+  "Adana", "Adıyaman", "Afyonkarahisar", "Afyon", "Ağrı", "Amasya", "Ankara", "Antalya", "Artvin", "Aydın", "Balıkesir",
   "Bilecik", "Bingöl", "Bitlis", "Bolu", "Burdur", "Bursa", "Çanakkale", "Çankırı", "Çorum", "Denizli",
   "Diyarbakır", "Edirne", "Elazığ", "Erzincan", "Erzurum", "Eskişehir", "Gaziantep", "Giresun", "Gümüşhane", "Hakkari",
-  "Hatay", "Isparta", "Mersin", "İstanbul", "İzmir", "Kars", "Kastamonu", "Kayseri", "Kırklareli", "Kırşehir",
-  "Kocaeli", "Konya", "Kütahya", "Malatya", "Manisa", "Kahramanmaraş", "Mardin", "Muğla", "Muş", "Nevşehir",
+  "Hatay", "Isparta", "Mersin", "İçel", "İstanbul", "İzmir", "Kars", "Kastamonu", "Kayseri", "Kırklareli", "Kırşehir",
+  "Kocaeli", "Konya", "Kütahya", "Malatya", "Manisa", "Kahramanmaraş", "Maraş", "Mardin", "Muğla", "Muş", "Nevşehir",
   "Niğde", "Ordu", "Rize", "Sakarya", "Samsun", "Siirt", "Sinop", "Sivas", "Tekirdağ", "Tokat",
-  "Trabzon", "Tunceli", "Şanlıurfa", "Uşak", "Van", "Yozgat", "Zonguldak", "Aksaray", "Bayburt", "Karaman",
-  "Kırıkkale", "Batman", "Şırnak", "Bartın", "Ardahan", "Iğdır", "Yalova", "Karabük", "Kilis", "Osmaniye", "Düzce"
+  "Trabzon", "Tunceli", "Şanlıurfa", "Urfa", "Uşak", "Van", "Yozgat", "Zonguldak", "Aksaray", "Bayburt", "Karaman",
+  "Kırıkkale", "Batman", "Şırnak", "Bartın", "Ardahan", "Iğdır", "Yalova", "Karabük", "Kilis", "Osmaniye", "Düzce",
+
+  // Sık Kullanılan İlçeler / Bölgeler
+  "Doğanhisar", "Ilgın", "Tire", "Çumra", "Ereğli", "Karapınar", "Akşehir", "Seydişehir", "Beyşehir", "Kulu", "Cihanbeyli",
+  "Gebze", "Çorlu", "Çerkezköy", "İskenderun", "Ceyhan", "Bandırma", "İnegöl", "Nazilli", "Söke", "Aliağa", "Torbalı",
+  "Menemen", "Bergama", "Ödemiş", "Kemalpaşa", "Sandıklı", "Dinar", "Polatlı", "Kazan", "Çubuk", "Merzifon", "Bafra",
+  "Tarsus", "Körfez", "Dilovası", "Turgutlu", "Salihli", "Akhisar", "Kızıltepe", "Nusaybin", "Eskere"
 ];
 
 function mesajAyristir(mesajMetni) {
+  // Tüm telefon numaralarını ayıkla
   const telRegex = /(?:(?:\+?90)|0)?\s*[5][0-9]{2}\s*[0-9]{3}\s*[0-9]{2}\s*[0-9]{2}/g;
-  const telEsllesme = mesajMetni.match(telRegex);
-  let telefon = telEsllesme ? telEsllesme[0].replace(/\s+/g, '').replace(/\+90/, '0') : null;
+  const telEsllesmeler = mesajMetni.match(telRegex);
+  let telefon = null;
+  
+  if (telEsllesmeler && telEsllesmeler.length > 0) {
+    // İlan metnindeki tüm numaraları düzenli tek dize haline getir veya ilkini al
+    telefon = telEsllesmeler.map(t => t.replace(/\s+/g, '').replace(/\+90/, '0')).join(' / ');
+  }
 
   let aracTipi = 'Belirtilmedi';
   const alt = mesajMetni.toLowerCase('tr-TR');
@@ -239,28 +290,28 @@ function mesajAyristir(mesajMetni) {
   else if (alt.includes('kamyon')) aracTipi = 'Kamyon';
   else if (alt.includes('kırkayak') || alt.includes('kirkayak')) aracTipi = 'Kırkayak';
   else if (alt.includes('damper')) aracTipi = 'Damperli';
-  else if (alt.includes('dorse')) aracTipi = 'Dorse';
+  else if (alt.includes('dorse') || alt.includes('k.dorse')) aracTipi = 'Dorse';
   else if (alt.includes('panelvan')) aracTipi = 'Panelvan';
 
   let nereden = null;
   let nereye = null;
 
-  const bulunanSehirler = [];
-  SEHIRLER.forEach(sehir => {
-    const regex = new RegExp(`\\b${sehir}\\b`, 'i');
+  const bulunanLokasyonlar = [];
+  LOKASYONLAR.forEach(lokasyon => {
+    const regex = new RegExp(`\\b${lokasyon}\\b`, 'i');
     const match = mesajMetni.match(regex);
     if (match) {
-      bulunanSehirler.push({ sehir, index: match.index });
+      bulunanLokasyonlar.push({ lokasyon, index: match.index });
     }
   });
 
-  bulunanSehirler.sort((a, b) => a.index - b.index);
+  bulunanLokasyonlar.sort((a, b) => a.index - b.index);
 
-  if (bulunanSehirler.length >= 2) {
-    nereden = bulunanSehirler[0].sehir;
-    nereye = bulunanSehirler[1].sehir;
-  } else if (bulunanSehirler.length === 1) {
-    nereden = bulunanSehirler[0].sehir;
+  if (bulunanLokasyonlar.length >= 2) {
+    nereden = bulunanLokasyonlar[0].lokasyon;
+    nereye = bulunanLokasyonlar[1].lokasyon;
+  } else if (bulunanLokasyonlar.length === 1) {
+    nereden = bulunanLokasyonlar[0].lokasyon;
   }
 
   return { 
@@ -272,7 +323,7 @@ function mesajAyristir(mesajMetni) {
   };
 }
 
-// --- 7. BOTU BAŞLAT ---
+// --- 8. BOTU BAŞLAT ---
 async function botuBaslat() {
   console.log('🔄 Oturum dosyaları kontrol ediliyor...');
   await oturumuSupabasedenYukle();
@@ -337,20 +388,21 @@ async function botuBaslat() {
 
   sock.ev.on('messages.upsert', async (m) => {
     const msg = m.messages[0];
-    if (!msg.message || msg.key.fromMe || !msg.key.remoteJid.endsWith('@g.us')) return;
+    if (!msg || !msg.message || msg.key.fromMe || !msg.key.remoteJid?.endsWith('@g.us')) return;
 
-    const mesajMetni = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
+    // Süreli mesajlar, medya veya standart metinleri derinden oku
+    const mesajMetni = mesajMetniniCikar(msg.message);
 
     if (spamMi(mesajMetni)) return;
 
-    const veriler = mesajAyristir(mesajMetni);
-
-    if (mukerrerIlanMi(veriler.telefon, veriler.ham_mesaj)) {
-      console.log('⏳ Mükerrer İlan atlandı.');
+    if (mukerrerIlanMi(mesajMetni)) {
+      console.log('⏳ Mükerrer/Tekrarlayan İlan atlandı.');
       return;
     }
 
-    console.log('📩 Yeni Temiz İlan Yakalandı: ' + mesajMetni.substring(0, 40) + '...');
+    const veriler = mesajAyristir(mesajMetni);
+
+    console.log('📩 Yeni Temiz İlan Yakalandı: ' + mesajMetni.substring(0, 40).replace(/\n/g, ' ') + '...');
 
     // SUPABASE'E VERİ KAYDETME
     const { data, error } = await supabase.from('ilanlar').insert([{
@@ -367,7 +419,7 @@ async function botuBaslat() {
       console.log('⚡ Supabase veritabanına BAŞARIYLA eklendi! (Nereden: ' + (veriler.nereden || '-') + ' -> Nereye: ' + (veriler.nereye || '-') + ')');
     }
 
-    // Telegram Bildirimi
+    // TELEGRAM BİLDİRİMİ YAYINLAMA
     const telegramMesaj = 
 `📦 <b>YENİ NAKLİYE İLANI</b>
 
