@@ -69,8 +69,8 @@ http.createServer((req, res) => {
 });
 
 // --- 2. SUPABASE, TELEGRAM VE TELEFON AYARLARI ---
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://picnztqncpshiatytgub.supabase.co'; 
-const SUPABASE_KEY = process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBpY256dHFuY3BzaGlhdHl0Z3ViIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU1MTI5MzcsImV4cCI6MjEwMTA4ODkzN30.QoRXvqIBwfj5uzYMpCi-QTNk15yOG3tT8T3KfhFg6T0';
+const SUPABASE_URL = process.env.SUPABASE_URL || 'https://fkcmlkbpwpjgdamhtegn.supabase.co'; 
+const SUPABASE_KEY = process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZrY21sa2Jwd3BqZ2RhbWh0ZWduIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYyMDkzODgsImV4cCI6MjEwMTc4NTM4OH0.2IQYeMZsICHPGQKBT3M8NCDdQXaqsTMsVxOFcTOrTTw';
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8624611315:AAHnYXg9RaaWjumP6jeCBzogVNYe_XQ13xc'; 
 const TELEGRAM_KANAL_ID = process.env.TELEGRAM_KANAL_ID || '-1003776147836'; 
 
