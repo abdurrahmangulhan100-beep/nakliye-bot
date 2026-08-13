@@ -10,6 +10,7 @@ const QRCode = require('qrcode');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto'); // Mükerrer metin hash kontrolü için eklendi
 
 const AUTH_DIR = path.join(__dirname, 'auth_info');
 
@@ -160,24 +161,33 @@ function spamMi(mesaj) {
 
 // --- 5. ULTRA HIZLI İKİNCİL (MÜKERRER) İLAN BLOKLAYICI (RAM CACHE) ---
 const ilaniSuresiDolanaKadarEngelle = new Map();
-const BIR_SAAT_MS = 60 * 60 * 1000;
+const MESAJ_ENGEL_SURESI_MS = 30 * 60 * 1000; // Aynı mesaj 30 dakika boyunca tekrar yayınlanmaz
 
 function mukerrerIlanMi(telefon, mesajMetni) {
   const simdi = Date.now();
-  const anahtar = telefon ? `tel_${telefon}` : `txt_${mesajMetni.trim().substring(0, 60)}`;
+  
+  // Mesajın harf ve rakamlarını temize çekip benzersiz içerik anahtarı (MD5 Hash) üretiyoruz
+  const temizMetin = mesajMetni
+    .toLowerCase('tr-TR')
+    .replace(/[^a-z0-9ğüşıöç]/g, '');
+    
+  const mesajHash = crypto.createHash('md5').update(temizMetin).digest('hex');
+  const anahtar = `msg_${mesajHash}`;
 
   if (ilaniSuresiDolanaKadarEngelle.has(anahtar)) {
     const kayitZamani = ilaniSuresiDolanaKadarEngelle.get(anahtar);
-    if (simdi - kayitZamani < BIR_SAAT_MS) {
-      return true;
+    if (simdi - kayitZamani < MESAJ_ENGEL_SURESI_MS) {
+      return true; // Birebir aynı ilan daha önce geldi, geç!
     }
   }
 
+  // Yeni içerikli ilanı hafızaya al
   ilaniSuresiDolanaKadarEngelle.set(anahtar, simdi);
 
-  if (ilaniSuresiDolanaKadarEngelle.size > 2000) {
+  // Bellek temizliği (RAM şişmesini önler)
+  if (ilaniSuresiDolanaKadarEngelle.size > 3000) {
     for (const [k, v] of ilaniSuresiDolanaKadarEngelle.entries()) {
-      if (simdi - v >= BIR_SAAT_MS) {
+      if (simdi - v >= MESAJ_ENGEL_SURESI_MS) {
         ilaniSuresiDolanaKadarEngelle.delete(k);
       }
     }
