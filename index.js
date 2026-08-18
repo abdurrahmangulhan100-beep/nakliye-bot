@@ -191,12 +191,45 @@ function mesajMetniniCikar(messageObj) {
   );
 }
 
-// --- 6. SPAM FİLTRESİ ---
+// --- 6. GELİŞMİŞ SPAM FİLTRESİ ---
 const KARA_KELIMELER = [
-  'asansör', 'mobilya', 'evden eve', 'kanalını takip edin', 'whatsapp.com/channel',
-  'taşıma görevi', 'planlanan taşıma', 'parana sahip çık', 'lütfen whatsapp üzerinden',
-  'mesaj bırakın', 'satılık', 'kiralık', 'devren', 'eleman', 'dükkan', 'şoför aranıyor',
-  'sohbet', 'grup kuralları', 'admin'
+  // 1. Kullanıcı Tarafından İstenen İlçe/Konum Filtresi
+  'kızıltepe', 'kiziltepe',
+
+  // 2. Evden Eve, Asansör & Mobilya (Şehirler Arası Ticari Yük Dışı)
+  'asansör', 'asansor', 'mobilya', 'evden eve', 'ev taşıma', 'ev tasima', 'parça eşya', 'parca esya',
+  'nakliyat', 'şehir içi nakliye', 'sehir ici nakliye', 'çeyiz', 'ceyiz', 'ofis taşıma', 'ofis tasima',
+
+  // 3. Grup / Kanal Takip & Link Davet Reklamları
+  'kanalını takip edin', 'kanalini takip edin', 'whatsapp.com/channel', 'chat.whatsapp.com',
+  't.me/', 'telegram.me/', 'gruba katıl', 'gruba katil', 'grup daveti', 'takip edin',
+  'tıkla katıl', 'tikla katil', 'linke tıkla', 'linke tikla',
+
+  // 4. Otomatik Bot Mesajları, Şablon İfadeler & Scam Kelimeler
+  'taşıma görevi', 'tasima gorevi', 'planlanan taşıma', 'planlanan tasima',
+  'parana sahip çık', 'parana sahip cik', 'lütfen whatsapp üzerinden', 'lutfen whatsapp uzerinden',
+  'mesaj bırakın', 'mesaj birakin', 'güvenli ödeme', 'guvenli odeme', 'ödeme garantisi', 'odeme garantisi',
+  'kapora', 'sadece whatsapp', 'dm atın', 'dm atin', 'özelden yazın', 'ozelden yazin',
+
+  // 5. Araç & Dükkan Satış/Kiralama / Otomotiv Reklamları
+  'satılık', 'satilik', 'kiralık', 'kiralik', 'devren', 'dükkan', 'dukkan',
+  'araba', 'otomobil', 'sahibinden', 'ekspertiz', 'hasar kayıtsız', 'hasar kayitsiz',
+  'boyasız', 'boyasiz', 'tramersiz', 'takaslı', 'takasli', 'temiz araç', 'temiz arac',
+
+  // 6. Personel & İş İlanları (Sürücü, Şoför, Eleman Arayanlar)
+  'eleman', 'şoför aranıyor', 'sofor araniyor', 'şoför alımı', 'sofor alimi',
+  'kaptan aranıyor', 'kaptan araniyor', 'maaşlı', 'maasli', 'personel', 'iş aranıyor', 'is araniyor',
+  'iş ilanı', 'is ilani', 'çalışma arkadaşı', 'calisma arkadasi', 'usta aranıyor', 'usta araniyor',
+
+  // 7. Grup İçi Sohbet, Selamlaşma & Yönetim İfadeleri
+  'sohbet', 'grup kuralları', 'grup kurallari', 'admin', 'yönetici', 'yonetici',
+  'hayırlı cumalar', 'hayirli cumalar', 'günaydın', 'gunaydin', 'iyi akşamlar', 'iyi aksamlar',
+  'hayırlı işler', 'hayirli isler', 'bereketli olsun', 'selamun aleyküm', 'selamun aleykum',
+  'sa', 'as', 'merhaba', 'arkadaşlar', 'arkadaslar', 'hoşgeldin', 'hosgeldin',
+
+  // 8. İkinci El Eşya & Ticari Ürün Satışları
+  'yedek parça', 'yedek parca', 'çıkma', 'cikma', 'lastik', 'jant', 'akü', 'aku',
+  'palet satılık', 'palet satilik', 'hurda', 'mazot', 'dizel', 'fatura kesilir', 'fatura mevcuttur'
 ];
 
 function spamMi(mesaj) {
