@@ -78,7 +78,33 @@ const PHONE_NUMBER = process.env.PHONE_NUMBER || '905XXXXXXXXX';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// --- 3. SUPABASE DOSYA YEDEKLEME & YÜKLEME ---
+// --- 3. BATCHING & KUYRUK MİMARİSİ (SUPABASE PERFORMANS ÇÖZÜMÜ) ---
+let insertQueue = [];
+
+async function flushInsertQueue() {
+  if (insertQueue.length === 0) return;
+
+  const toInsert = [...insertQueue];
+  insertQueue = []; // Kuyruğu hemen boşalt
+
+  try {
+    const { error } = await supabase.from('ilanlar').insert(toInsert);
+    if (error) {
+      console.error('❌ SUPABASE BATCH EKLEME HATASI:', error.message);
+    } else {
+      console.log(`⚡ Supabase'e Toplu Eklendi! (${toInsert.length} Adet İlan)`);
+    }
+  } catch (e) {
+    console.error('⚠️ Supabase Toplu İstisna Hatası:', e.message);
+  }
+}
+
+// 10 saniyede bir biriken verileri veritabanına tek sorguyla at
+setInterval(flushInsertQueue, 10000);
+
+// --- 4. SUPABASE DOSYA YEDEKLEME (LİMİTLENMİŞ YENİ VERSİYON) ---
+let lastAuthBackupTime = 0;
+
 async function oturumuSupabasedenYukle() {
   try {
     if (!fs.existsSync(AUTH_DIR)) fs.mkdirSync(AUTH_DIR, { recursive: true });
@@ -109,7 +135,11 @@ async function oturumuSupabasedenYukle() {
   }
 }
 
-async function oturumuSupabaseaYedekle() {
+async function oturumuSupabaseaYedekle(force = false) {
+  const simdi = Date.now();
+  // Sadece zorunlu durumlarda veya en az 5 dakikada bir veritabanına yaz (Disk IO koruması)
+  if (!force && simdi - lastAuthBackupTime < 5 * 60 * 1000) return;
+
   try {
     if (!fs.existsSync(AUTH_DIR)) return;
     const fileNames = fs.readdirSync(AUTH_DIR);
@@ -131,6 +161,7 @@ async function oturumuSupabaseaYedekle() {
     if (error) {
       console.error('⚠️ Supabase Yedekleme Hatası:', error.message);
     } else {
+      lastAuthBackupTime = simdi;
       console.log('☁️ Oturum dosyaları Supabase veritabanına yedeklendi.');
     }
   } catch (e) {
@@ -138,7 +169,7 @@ async function oturumuSupabaseaYedekle() {
   }
 }
 
-// --- 4. DERİN MESAJ AYRIŞTIRICI ---
+// --- 5. DERİN MESAJ AYRIŞTIRICI ---
 function mesajMetniniCikar(messageObj) {
   if (!messageObj) return '';
   let msg = messageObj;
@@ -160,7 +191,7 @@ function mesajMetniniCikar(messageObj) {
   );
 }
 
-// --- 5. SPAM FİLTRESİ ---
+// --- 6. SPAM FİLTRESİ ---
 const KARA_KELIMELER = [
   'asansör', 'mobilya', 'evden eve', 'kanalını takip edin', 'whatsapp.com/channel',
   'taşıma görevi', 'planlanan taşıma', 'parana sahip çık', 'lütfen whatsapp üzerinden',
@@ -181,7 +212,7 @@ function spamMi(mesaj) {
   return false;
 }
 
-// --- 6. MÜKERRER İLAN BLOKLAYICI ---
+// --- 7. MÜKERRER İLAN BLOKLAYICI ---
 const ilaniSuresiDolanaKadarEngelle = new Map();
 const MESAJ_ENGEL_SURESI_MS = 20 * 60 * 1000;
 
@@ -218,9 +249,8 @@ function mukerrerIlanMi(mesajMetni) {
   return false;
 }
 
-// --- 7. GELİŞMİŞ ŞEHİR / İLÇE / KISALTMA VERİSİ VE PARSER ---
+// --- 8. GELİŞMİŞ ŞEHİR / İLÇE / KISALTMA VERİSİ VE PARSER ---
 
-// Kısaltmaları resmi il isimlerine dönüştürme haritası
 const KISALTMALAR = {
   'kny': { il: 'Konya' },
   'ist': { il: 'İstanbul' },
@@ -240,14 +270,11 @@ const KISALTMALAR = {
   'inegol': { il: 'Bursa', ilce: 'İnegöl' }
 };
 
-// İlçeleri Üst İline Bağlayan Sözlük
 const ILCE_IL_HARITASI = {
-  // Konya İlçeleri
   'ereğli': 'Konya', 'eregli': 'Konya', 'ilgın': 'Konya', 'ilgin': 'Konya',
   'akşehir': 'Konya', 'aksehir': 'Konya', 'karapınar': 'Konya', 'karapinar': 'Konya',
   'seydişehir': 'Konya', 'seydisehir': 'Konya', 'beyşehir': 'Konya', 'beysehir': 'Konya',
   'kulu': 'Konya', 'cihanbeyli': 'Konya', 'çumra': 'Konya', 'cumra': 'Konya', 'doğanhisar': 'Konya',
-  // Diğer Popüler Lojistik İlçeleri
   'gebze': 'Kocaeli', 'dilovası': 'Kocaeli', 'körfez': 'Kocaeli',
   'çorlu': 'Tekirdağ', 'çerkezköy': 'Tekirdağ', 'iskenderun': 'Hatay',
   'ceyhan': 'Adana', 'bandırma': 'Balıkesir', 'inegöl': 'Bursa', 'nazilli': 'Aydın',
@@ -286,7 +313,6 @@ async function telegramaGonder(metin) {
 }
 
 function gelismisMesajAyristir(mesajMetni) {
-  // 1. Telefon Numarası Çıkarma
   const telRegex = /(?:(?:\+?90)|0)?\s*[5][0-9]{2}\s*[0-9]{3}\s*[0-9]{2}\s*[0-9]{2}/g;
   const telEsllesmeler = mesajMetni.match(telRegex);
   let telefon = null;
@@ -294,7 +320,6 @@ function gelismisMesajAyristir(mesajMetni) {
     telefon = telEsllesmeler.map(t => t.replace(/\s+/g, '').replace(/\+90/, '0')).join(' / ');
   }
 
-  // 2. Araç Tipi Çıkarma
   let aracTipi = 'Belirtilmedi';
   const alt = mesajMetni.toLowerCase('tr-TR');
   if (alt.includes('tır') || alt.includes('tir')) aracTipi = 'TIR';
@@ -305,10 +330,8 @@ function gelismisMesajAyristir(mesajMetni) {
   else if (alt.includes('dorse')) aracTipi = 'Dorse';
   else if (alt.includes('panelvan')) aracTipi = 'Panelvan';
 
-  // 3. Gelişmiş Lokasyon Analizi (İl, İlçe, Kısaltma Tespiti)
   const tespitEdilenler = [];
 
-  // A) Kısaltma Kontrolü
   for (const [kisaltma, bilgi] of Object.entries(KISALTMALAR)) {
     const reg = new RegExp(`\\b${kisaltma}\\b`, 'i');
     const m = mesajMetni.match(reg);
@@ -317,7 +340,6 @@ function gelismisMesajAyristir(mesajMetni) {
     }
   }
 
-  // B) İlçe Kontrolü
   for (const [ilce, bagliIl] of Object.entries(ILCE_IL_HARITASI)) {
     const reg = new RegExp(`\\b${ilce}\\b`, 'i');
     const m = mesajMetni.match(reg);
@@ -326,7 +348,6 @@ function gelismisMesajAyristir(mesajMetni) {
     }
   }
 
-  // C) İl Kontrolü
   ILLER.forEach(il => {
     const reg = new RegExp(`\\b${il}\\b`, 'i');
     const m = mesajMetni.match(reg);
@@ -335,10 +356,8 @@ function gelismisMesajAyristir(mesajMetni) {
     }
   });
 
-  // Sıralamayı metindeki sırasına göre yap
   tespitEdilenler.sort((a, b) => a.index - b.index);
 
-  // Mükerrer lokasyonları (aynı ilçe/il tekrarını) temizle
   const benzersiz = [];
   tespitEdilenler.forEach(item => {
     if (!benzersiz.some(b => b.il === item.il && b.ilce === item.ilce)) {
@@ -367,13 +386,12 @@ function gelismisMesajAyristir(mesajMetni) {
     kalkis_ilcesi,
     varis_ili,
     varis_ilcesi,
-    // Eski tablo yapınla uyumluluk için:
     nereden: kalkis_ilcesi ? `${kalkis_ili} / ${kalkis_ilcesi}` : kalkis_ili,
     nereye: varis_ilcesi ? `${varis_ili} / ${varis_ilcesi}` : varis_ili
   };
 }
 
-// --- 8. BOTU BAŞLAT ---
+// --- 9. BOTU BAŞLAT ---
 async function botuBaslat() {
   console.log('🔄 Oturum dosyaları kontrol ediliyor...');
   await oturumuSupabasedenYukle();
@@ -408,7 +426,7 @@ async function botuBaslat() {
 
   sock.ev.on('creds.update', async () => {
     await saveCreds();
-    await oturumuSupabaseaYedekle();
+    await oturumuSupabaseaYedekle(false); // Sadece 5 dakikada bir veritabanına yazar
   });
 
   sock.ev.on('connection.update', async (update) => {
@@ -421,7 +439,7 @@ async function botuBaslat() {
       console.log('\n==================================================');
       console.log('✅ WHATSAPP BOTU ANINDA BAĞLANDI VE CANLI DİNLİYOR!');
       console.log('==================================================\n');
-      await oturumuSupabaseaYedekle();
+      await oturumuSupabaseaYedekle(true); // Bağlantı kurulunca bir kere zorunlu yedekle
     }
     
     if (connection === 'close') {
@@ -453,8 +471,8 @@ async function botuBaslat() {
 
     console.log('📩 Yeni İlan Parse Edildi: ' + mesajMetni.substring(0, 40).replace(/\n/g, ' ') + '...');
 
-    // SUPABASE'E GELİŞMİŞ SÜTUNLARLA KAYIT
-    const { data, error } = await supabase.from('ilanlar').insert([{
+    // SUPABASE İÇİN NESNEYİ KUYRUĞA EKLE (DOĞRUDAN INSERT YAPMAZ)
+    insertQueue.push({
       ham_mesaj: veriler.ham_mesaj,
       nereden: veriler.nereden,
       nereye: veriler.nereye,
@@ -464,15 +482,14 @@ async function botuBaslat() {
       varis_ilcesi: veriler.varis_ilcesi,
       arac_tipi: veriler.arac_tipi !== 'Belirtilmedi' ? veriler.arac_tipi : null,
       telefon: veriler.telefon
-    }]);
+    });
 
-    if (error) {
-      console.error('❌ SUPABASE EKLEME HATASI:', error.message);
-    } else {
-      console.log(`⚡ Supabase'e Eklendi! [Kalkış: ${veriler.kalkis_ili || '-'} / ${veriler.kalkis_ilcesi || '-'}] ➔ [Varış: ${veriler.varis_ili || '-'} / ${veriler.varis_ilcesi || '-'}]`);
+    // Kuyruk 15 elemana ulaştıysa hemen yaz (10 saniye beklemeden)
+    if (insertQueue.length >= 15) {
+      flushInsertQueue();
     }
 
-    // TELEGRAM BİLDİRİMİ
+    // TELEGRAM BİLDİRİMİ ( Telegram API'si sınırlamalardan etkilenmez )
     const telegramMesaj = 
 `📦 <b>YENİ NAKLİYE İLANI</b>
 
