@@ -5,7 +5,7 @@ const {
   useMultiFileAuthState,
   Browsers
 } = require('@whiskeysockets/baileys');
-const { Pool } = require('pg');
+const { createClient } = require('@supabase/supabase-js');
 const QRCode = require('qrcode');
 const http = require('http');
 const fs = require('fs');
@@ -68,23 +68,16 @@ http.createServer((req, res) => {
   console.log(`🌐 Sunucu ${PORT} portunda çalışıyor.`);
 });
 
-// --- 2. POSTGRESQL VERİTABANI, TELEGRAM VE TELEFON AYARLARI ---
+// --- 2. SUPABASE, TELEGRAM VE TELEFON AYARLARI ---
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8624611315:AAHnYXg9RaaWjumP6jeCBzogVNYe_XQ13xc'; 
 const TELEGRAM_KANAL_ID = process.env.TELEGRAM_KANAL_ID || '-1003776147836'; 
 const PHONE_NUMBER = process.env.PHONE_NUMBER || '905XXXXXXXXX'; 
 
-// Yerel PostgreSQL Bağlantı Havuzu
-const db = new Pool({
-  user: process.env.DB_USER || 'nakliyeuser',
-  host: process.env.DB_HOST || 'localhost',
-  database: process.env.DB_NAME || 'nakliyedb',
-  password: process.env.DB_PASSWORD || 'CokGucluuSifre123!',
-  port: process.env.DB_PORT || 5432,
-});
+// Supabase İstemci Kurulumu
+const SUPABASE_URL = process.env.SUPABASE_URL || 'https://hqeaakpyqesxewvkxptf.supabase.co';
+const SUPABASE_KEY = process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhxZWFha3B5cWVzeGV3dmt4cHRmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcxNDMwMzMsImV4cCI6MjEwMjcxOTAzM30.QUi3fYgcJUVzMyldFUtjXLRTa6v2XshO-756aMfruxI';
 
-db.on('error', (err) => {
-  console.error('⚠️ PostgreSQL Havuz Hatası:', err.message);
-});
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // --- 3. DERİN MESAJ AYRIŞTIRICI ---
 function mesajMetniniCikar(messageObj) {
@@ -397,23 +390,27 @@ async function botuBaslat() {
 
     console.log('📩 Yeni İlan Parse Edildi: ' + mesajMetni.substring(0, 40).replace(/\n/g, ' ') + '...');
 
-    // DOĞRUDAN YEREL POSTGRESQL VERİTABANINA EKLE
+    // SUPABASE VERİTABANINA EKLEME
     try {
-      await db.query(
-        `INSERT INTO ilanlar 
-        (title, content, phone, city_from, city_to) 
-        VALUES ($1, $2, $3, $4, $5)`,
-        [
-          veriler.arac_tipi !== 'Belirtilmedi' ? veriler.arac_tipi : 'Nakliye İlanı',
-          veriler.ham_mesaj,
-          veriler.telefon,
-          veriler.nereden,
-          veriler.nereye
-        ]
-      );
-      console.log('⚡ İlan yerel PostgreSQL veritabanına kaydedildi!');
+      const { error } = await supabase
+        .from('ilanlar')
+        .insert([
+          {
+            title: veriler.arac_tipi !== 'Belirtilmedi' ? veriler.arac_tipi : 'Nakliye İlanı',
+            content: veriler.ham_mesaj,
+            phone: veriler.telefon,
+            city_from: veriler.nereden,
+            city_to: veriler.nereye
+          }
+        ]);
+
+      if (error) {
+        console.error('❌ Supabase Kayıt Hatası:', error.message);
+      } else {
+        console.log('⚡ İlan Supabase veritabanına kaydedildi!');
+      }
     } catch (err) {
-      console.error('❌ Veritabanı Kayıt Hatası:', err.message);
+      console.error('❌ Beklenmeyen Supabase Hatası:', err.message);
     }
 
     // TELEGRAM BİLDİRİMİ
