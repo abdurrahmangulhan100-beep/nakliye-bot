@@ -119,11 +119,12 @@ const KARA_KELIMELER = [
 
   // Personel / İş Aranyanlar
   'sofor araniyor', 'şoför aranıyor', 'sofor alimi', 'şoför alımı', 'kaptan araniyor', 'kaptan aranıyor', 
-  'maasli personel', 'maaşlı personel', 'usta araniyor', 'usta aranıyor', 'calisma arkadasi', 'çalışma arkadaşı',
-
+  'maasli personel', 'maaşlı personel', 'usta araniyor', 'usta aranıyor', 'calisma arkadasi', 'çalışma arkadaşı', 
+  
   // Bot & Otomatik Mesaj Kalıpları
   'kaliteli yuk', 'kaliteli yük', 'tasima programi', 'taşıma programı', 'bugunun kaliteli', 'bugünün kaliteli', 
   'yapilacak sevkiyat', 'yapılacak sevkiyat', 'tasima gorevi', 'taşıma görevi', 'planlanan tasima', 'planlanan taşıma',
+  'bugunku yuk', 'bugünkü yük', 'tasima isi', 'taşıma işi', 'bugünkü yük taşıma işi',
 
   // Grup İçi Genel Sohbet Spamları
   'grup kurallari', 'grup kuralları', 'hayirli cumalar', 'hayırlı cumalar', 'bereketli olsun'
