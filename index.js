@@ -73,7 +73,6 @@ const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8624611315:AAHnYXg
 const TELEGRAM_KANAL_ID = process.env.TELEGRAM_KANAL_ID || '-1003776147836'; 
 const PHONE_NUMBER = process.env.PHONE_NUMBER || '905XXXXXXXXX'; 
 
-// Supabase İstemci Kurulumu
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://hqeaakpyqesxewvkxptf.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhxZWFha3B5cWVzeGV3dmt4cHRmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcxNDMwMzMsImV4cCI6MjEwMjcxOTAzM30.QUi3fYgcJUVzMyldFUtjXLRTa6v2XshO-756aMfruxI';
 
@@ -101,65 +100,58 @@ function mesajMetniniCikar(messageObj) {
   );
 }
 
-// --- 4. GELİŞMİŞ SPAM FİLTRESİ ---
+// --- 4. HASSAS VE KESİN SPAM FİLTRESİ ---
+// Not: Şehir, ilçe veya kişi isimleriyle karışabilecek tüm kısa kelimeler kaldırılmıştır.
 const KARA_KELIMELER = [
-  'kızıltepe', 'kiziltepe',
-  'asansör', 'asansor', 'mobilya', 'evden eve', 'ev taşıma', 'ev tasima', 'parça eşya', 'parca esya',
-  'nakliyat', 'şehir içi nakliye', 'sehir ici nakliye', 'çeyiz', 'ceyiz', 'ofis taşıma', 'ofis tasima',
-  'kanalını takip edin', 'kanalini takip edin', 'whatsapp.com/channel', 'chat.whatsapp.com',
-  't.me/', 'telegram.me/', 'gruba katıl', 'gruba katil', 'grup daveti', 'takip edin',
-  'tıkla katıl', 'tikla katil', 'linke tıkla', 'linke tikla',
-  'taşıma görevi', 'tasima gorevi', 'planlanan taşıma', 'planlanan tasima',
-  'parana sahip çık', 'parana sahip cik', 'lütfen whatsapp üzerinden', 'lutfen whatsapp uzerinden',
-  'mesaj bırakın', 'mesaj birakin', 'güvenli ödeme', 'guvenli odeme', 'ödeme garantisi', 'odeme garantisi',
-  'kapora', 'sadece whatsapp', 'dm atın', 'dm atin', 'özelden yazın', 'ozelden yazin',
-  'satılık', 'satilik', 'kiralık', 'kiralik', 'devren', 'dükkan', 'dukkan',
-  'araba', 'otomobil', 'sahibinden', 'ekspertiz', 'hasar kayıtsız', 'hasar kayitsiz',
-  'boyasız', 'boyasiz', 'tramersiz', 'takaslı', 'takasli', 'temiz araç', 'temiz arac',
-  'eleman', 'şoför aranıyor', 'sofor araniyor', 'şoför alımı', 'sofor alimi',
-  'kaptan aranıyor', 'kaptan araniyor', 'maaşlı', 'maasli', 'personel', 'iş aranıyor', 'is araniyor',
-  'iş ilanı', 'is ilani', 'çalışma arkadaşı', 'calisma arkadasi', 'usta aranıyor', 'usta araniyor',
-  'sohbet', 'grup kuralları', 'grup kurallari', 'admin', 'yönetici', 'yonetici',
-  'hayırlı cumalar', 'hayirli cumalar', 'günaydın', 'gunaydin', 'iyi akşamlar', 'iyi aksamlar',
-  'hayırlı işler', 'hayirli isler', 'bereketli olsun', 'selamun aleyküm', 'selamun aleykum',
-  'sa', 'as', 'merhaba', 'arkadaşlar', 'arkadaslar', 'hoşgeldin', 'hosgeldin',
-  'yedek parça', 'yedek parca', 'çıkma', 'cikma', 'lastik', 'jant', 'akü', 'aku',
-  'palet satılık', 'palet satilik', 'hurda', 'mazot', 'dizel', 'fatura kesilir', 'fatura mevcuttur',
+  // Evden Eve / Mobilya (Ticari yük harici)
+  'evden eve', 'ev tasima', 'ev taşıma', 'parca esya', 'parça eşya', 'ceyiz tasima', 'çeyiz taşıma', 'ofis tasima', 'ofis taşıma', 'asansorlu nakliyat', 'asansörlü nakliyat',
 
-  // YENİ EKLENEN BOT/SPAM CÜMLELERİ
-  'kaliteli yuk', 'kaliteli yük', 'tasima programi', 'taşıma programı', 
-  'tasima isi', 'taşıma işi', 'yapilacak sevkiyat', 'yapılacak sevkiyat',
-  'bugunun kaliteli', 'bugünün kaliteli', 'bugunku yuk', 'bugünkü yük',
-  
-  // YENİ EKLENEN DİNİ/SOHBET SPAM CÜMLELERİ
-  'selam aleyk', 'aleykum selam', 'rahmetullahi', 'berekatuhu', 
-  'hayirli gunler', 'hayırlı günler', 'hayirli calismalar', 'hayırlı çalışmalar', 
-  'ugurunuz acik olsun', 'uğurunuz açık olsun'
+  // Grup / Kanal Reklamları & Linkler
+  'whatsapp.com/channel', 'chat.whatsapp.com', 't.me/', 'telegram.me/', 'gruba katil', 'gruba katıl', 
+  'grup daveti', 'kanalini takip', 'kanalını takip', 'tikla katil', 'tıkla katıl', 'linke tikla', 'linke tıkla',
+
+  // Dolandırıcılık / Kapora Uyarıları
+  'parana sahip cik', 'parana sahip çık', 'guvenli odeme', 'güvenli ödeme', 'odeme garantisi', 'ödeme garantisi', 'kapora',
+
+  // Araç / Gayrimenkul Satışı
+  'satilik dukkan', 'satılık dükkan', 'devren dukkan', 'devren dükkan', 'satilik araba', 'satılık araba', 
+  'hasar kayitsiz', 'hasar kayıtsız', 'tramersiz', 'takasli', 'takaslı', 'ekspertiz',
+
+  // Personel / İş Aranyanlar
+  'sofor araniyor', 'şoför aranıyor', 'sofor alimi', 'şoför alımı', 'kaptan araniyor', 'kaptan aranıyor', 
+  'maasli personel', 'maaşlı personel', 'usta araniyor', 'usta aranıyor', 'calisma arkadasi', 'çalışma arkadaşı',
+
+  // Bot & Otomatik Mesaj Kalıpları
+  'kaliteli yuk', 'kaliteli yük', 'tasima programi', 'taşıma programı', 'bugunun kaliteli', 'bugünün kaliteli', 
+  'yapilacak sevkiyat', 'yapılacak sevkiyat', 'tasima gorevi', 'taşıma görevi', 'planlanan tasima', 'planlanan taşıma',
+
+  // Grup İçi Genel Sohbet Spamları
+  'grup kurallari', 'grup kuralları', 'hayirli cumalar', 'hayırlı cumalar', 'bereketli olsun'
 ];
 
 function spamMi(mesaj) {
   if (!mesaj) return true;
   
-  // 1. Çok kısa veya çok uzun mesajları engelle
+  // 1. Çok kısa mesajlar veya devasa metinler
   if (mesaj.length < 10 || mesaj.length > 3000) return true;
   
-  // 2. SADECE TELEFON NUMARASI OLANLARI ENGELLE (5 harften az içeriyorsa çöptür)
+  // 2. Yetersiz harf içerenler (Sadece telefon numarası veya emoji atıp kaçanlar)
   const harfSayisi = (mesaj.match(/[a-zA-ZğüşıöçĞÜŞİÖÇ]/g) || []).length;
   if (harfSayisi < 5) {
-    console.log('🚮 Spam Yakalandı (Sadece Numara/Yetersiz Harf):', mesaj.substring(0, 30));
+    console.log('🚮 Spam Yakalandı (Yetersiz Harf / Sadece Numara):', mesaj.substring(0, 30));
     return true; 
   }
 
   const kucukMesaj = mesaj.toLowerCase('tr-TR');
   
-  // 3. Kara kelime kontrolü
-  const karaKelimeVar = KARA_KELIMELER.some(kelime => kucukMesaj.includes(kelime.toLowerCase('tr-TR')));
-  if (karaKelimeVar) {
-    console.log('🚮 Spam Yakalandı (Kara Kelime):', mesaj.substring(0, 30));
+  // 3. Nokta Atışı Kara Kelime Kontrolü
+  const yakalanan = KARA_KELIMELER.find(kelime => kucukMesaj.includes(kelime.toLowerCase('tr-TR')));
+  if (yakalanan) {
+    console.log(`🚮 Spam Yakalandı [Yasaklı Kelime: "${yakalanan}"]:`, mesaj.substring(0, 40).replace(/\n/g, ' '));
     return true;
   }
 
-  // 4. Link kontrolü
+  // 4. Link İçeren Spamlar
   if (kucukMesaj.includes('http://') || kucukMesaj.includes('https://') || kucukMesaj.includes('channel')) {
     console.log('🚮 Spam Yakalandı (Link İçeriyor):', mesaj.substring(0, 30));
     return true;
@@ -170,7 +162,7 @@ function spamMi(mesaj) {
 
 // --- 5. MÜKERRER İLAN BLOKLAYICI ---
 const ilaniSuresiDolanaKadarEngelle = new Map();
-const MESAJ_ENGEL_SURESI_MS = 20 * 60 * 1000;
+const MESAJ_ENGEL_SURESI_MS = 20 * 60 * 1000; // 20 Dakika
 
 function mukerrerIlanMi(mesajMetni) {
   if (!mesajMetni) return true;
