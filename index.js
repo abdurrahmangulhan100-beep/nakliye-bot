@@ -1,9 +1,9 @@
 const { 
   default: makeWASocket, 
   DisconnectReason, 
-  fetchLatestBaileysVersion,
-  useMultiFileAuthState,
-  Browsers
+  fetchLatestBaileysVersion, 
+  useMultiFileAuthState, 
+  Browsers 
 } = require('@whiskeysockets/baileys');
 const { createClient } = require('@supabase/supabase-js');
 const QRCode = require('qrcode');
@@ -100,34 +100,48 @@ function mesajMetniniCikar(messageObj) {
   );
 }
 
-// --- 4. HASSAS VE KESİN SPAM FİLTRESİ ---
-// Not: Şehir, ilçe veya kişi isimleriyle karışabilecek tüm kısa kelimeler kaldırılmıştır.
+// --- 4. GELİŞMİŞ TÜRKÇE METİN NORMALİZATÖRÜ ---
+function metniNormalizeEt(text) {
+  if (!text) return '';
+  return text
+    .toLowerCase('tr-TR')
+    .replace(/ı/g, 'i')
+    .replace(/i̇/g, 'i')
+    .replace(/ğ/g, 'g')
+    .replace(/ü/g, 'u')
+    .replace(/ş/g, 's')
+    .replace(/ö/g, 'o')
+    .replace(/ç/g, 'c')
+    .replace(/[^a-z0-9\s]/g, ' ');
+}
+
+// --- 5. HASSAS VE KESİN SPAM FİLTRESİ ---
 const KARA_KELIMELER = [
-  // Evden Eve / Mobilya (Ticari yük harici)
-  'evden eve', 'ev tasima', 'ev taşıma', 'parca esya', 'parça eşya', 'ceyiz tasima', 'çeyiz taşıma', 'ofis tasima', 'ofis taşıma', 'asansorlu nakliyat', 'asansörlü nakliyat',
+  // Evden Eve / Mobilya
+  'evden eve', 'ev tasima', 'parca esya', 'ceyiz tasima', 'ofis tasima', 'asansorlu nakliyat',
 
   // Grup / Kanal Reklamları & Linkler
-  'whatsapp.com/channel', 'chat.whatsapp.com', 't.me/', 'telegram.me/', 'gruba katil', 'gruba katıl', 
-  'grup daveti', 'kanalini takip', 'kanalını takip', 'tikla katil', 'tıkla katıl', 'linke tikla', 'linke tıkla',
+  'whatsapp com', 'chat whatsapp', 't me', 'telegram me', 'gruba katil',
+  'grup daveti', 'kanalini takip', 'tikla katil', 'linke tikla',
 
   // Dolandırıcılık / Kapora Uyarıları
-  'parana sahip cik', 'parana sahip çık', 'guvenli odeme', 'güvenli ödeme', 'odeme garantisi', 'ödeme garantisi', 'kapora',
+  'parana sahip cik', 'guvenli odeme', 'odeme garantisi', 'kapora',
 
   // Araç / Gayrimenkul Satışı
-  'satilik dukkan', 'satılık dükkan', 'devren dukkan', 'devren dükkan', 'satilik araba', 'satılık araba', 
-  'hasar kayitsiz', 'hasar kayıtsız', 'tramersiz', 'takasli', 'takaslı', 'ekspertiz',
+  'satilik dukkan', 'devren dukkan', 'satilik araba',
+  'hasar kayitsiz', 'tramersiz', 'takasli', 'ekspertiz',
 
   // Personel / İş Aranyanlar
-  'sofor araniyor', 'şoför aranıyor', 'sofor alimi', 'şoför alımı', 'kaptan araniyor', 'kaptan aranıyor', 
-  'maasli personel', 'maaşlı personel', 'usta araniyor', 'usta aranıyor', 'calisma arkadasi', 'çalışma arkadaşı', 
+  'sofor araniyor', 'sofor alimi', 'kaptan araniyor',
+  'maasli personel', 'usta araniyor', 'calisma arkadasi',
   
   // Bot & Otomatik Mesaj Kalıpları
-  'kaliteli yuk', 'kaliteli yük', 'tasima programi', 'taşıma programı', 'bugunun kaliteli', 'bugünün kaliteli', 
-  'yapilacak sevkiyat', 'yapılacak sevkiyat', 'tasima gorevi', 'taşıma görevi', 'planlanan tasima', 'planlanan taşıma',
-  'bugunku yuk', 'bugünkü yük', 'tasima isi', 'taşıma işi', 'bugünkü yük taşıma işi',
+  'kaliteli yuk', 'tasima programi', 'bugunun kaliteli',
+  'yapilacak sevkiyat', 'tasima gorevi', 'planlanan tasima',
+  'bugunku yuk', 'tasima isi', 'nakliye yuku',
 
-  // Grup İçi Genel Sohbet Spamları
-  'grup kurallari', 'grup kuralları', 'hayirli cumalar', 'hayırlı cumalar', 'bereketli olsun'
+  // Grup İçi Genel Sohbet
+  'grup kurallari', 'hayirli cumalar', 'bereketli olsun'
 ];
 
 function spamMi(mesaj) {
@@ -136,32 +150,40 @@ function spamMi(mesaj) {
   // 1. Çok kısa mesajlar veya devasa metinler
   if (mesaj.length < 10 || mesaj.length > 3000) return true;
   
-  // 2. Yetersiz harf içerenler (Sadece telefon numarası veya emoji atıp kaçanlar)
+  // 2. Yetersiz harf içerenler
   const harfSayisi = (mesaj.match(/[a-zA-ZğüşıöçĞÜŞİÖÇ]/g) || []).length;
   if (harfSayisi < 5) {
-    console.log('🚮 Spam Yakalandı (Yetersiz Harf / Sadece Numara):', mesaj.substring(0, 30));
+    console.log('🚮 Spam Yakalandı (Yetersiz Harf):', mesaj.substring(0, 30));
     return true; 
   }
 
-  const kucukMesaj = mesaj.toLowerCase('tr-TR');
+  // 3. Metni Normalize Et (Türkçe Karakter Problemini Çözer)
+  const temizMesaj = metniNormalizeEt(mesaj);
   
-  // 3. Nokta Atışı Kara Kelime Kontrolü
-  const yakalanan = KARA_KELIMELER.find(kelime => kucukMesaj.includes(kelime.toLowerCase('tr-TR')));
+  // 4. Nokta Atışı Kara Kelime Kontrolü
+  const yakalanan = KARA_KELIMELER.find(kelime => temizMesaj.includes(kelime));
   if (yakalanan) {
     console.log(`🚮 Spam Yakalandı [Yasaklı Kelime: "${yakalanan}"]:`, mesaj.substring(0, 40).replace(/\n/g, ' '));
     return true;
   }
 
-  // 4. Link İçeren Spamlar
-  if (kucukMesaj.includes('http://') || kucukMesaj.includes('https://') || kucukMesaj.includes('channel')) {
+  // 5. Link İçeren Spamlar
+  if (temizMesaj.includes('http') || temizMesaj.includes('https') || temizMesaj.includes('channel')) {
     console.log('🚮 Spam Yakalandı (Link İçeriyor):', mesaj.substring(0, 30));
+    return true;
+  }
+
+  // 6. Çoklu İl İlanları (Toplu Bot Liste İlanlarını Engeller)
+  const geçenİlSayısı = ILLER.filter(il => temizMesaj.includes(metniNormalizeEt(il))).length;
+  if (geçenİlSayısı > 4) {
+    console.log('🚮 Spam Yakalandı (Karmaşık / Toplu Bot İlanı):', mesaj.substring(0, 30));
     return true;
   }
 
   return false;
 }
 
-// --- 5. MÜKERRER İLAN BLOKLAYICI ---
+// --- 6. MÜKERRER İLAN BLOKLAYICI ---
 const ilaniSuresiDolanaKadarEngelle = new Map();
 const MESAJ_ENGEL_SURESI_MS = 20 * 60 * 1000; // 20 Dakika
 
@@ -169,9 +191,7 @@ function mukerrerIlanMi(mesajMetni) {
   if (!mesajMetni) return true;
   const simdi = Date.now();
   
-  const temizMetin = mesajMetni
-    .toLowerCase('tr-TR')
-    .replace(/[^a-z0-9ğüşıöç]/g, '');
+  const temizMetin = metniNormalizeEt(mesajMetni).replace(/\s+/g, '');
     
   if (temizMetin.length < 8) return true;
 
@@ -198,7 +218,7 @@ function mukerrerIlanMi(mesajMetni) {
   return false;
 }
 
-// --- 6. GELİŞMİŞ ŞEHİR / İLÇE / KISALTMA VERİSİ VE PARSER ---
+// --- 7. GELİŞMİŞ ŞEHİR / İLÇE / KISALTMA VERİSİ VE PARSER ---
 const KISALTMALAR = {
   'kny': { il: 'Konya' },
   'ist': { il: 'İstanbul' },
@@ -339,7 +359,7 @@ function gelismisMesajAyristir(mesajMetni) {
   };
 }
 
-// --- 7. BOTU BAŞLAT ---
+// --- 8. BOTU BAŞLAT ---
 async function botuBaslat() {
   const { state, saveCreds } = await useMultiFileAuthState('auth_info');
   const { version } = await fetchLatestBaileysVersion();
