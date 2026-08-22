@@ -124,18 +124,46 @@ const KARA_KELIMELER = [
   'hayırlı işler', 'hayirli isler', 'bereketli olsun', 'selamun aleyküm', 'selamun aleykum',
   'sa', 'as', 'merhaba', 'arkadaşlar', 'arkadaslar', 'hoşgeldin', 'hosgeldin',
   'yedek parça', 'yedek parca', 'çıkma', 'cikma', 'lastik', 'jant', 'akü', 'aku',
-  'palet satılık', 'palet satilik', 'hurda', 'mazot', 'dizel', 'fatura kesilir', 'fatura mevcuttur'
+  'palet satılık', 'palet satilik', 'hurda', 'mazot', 'dizel', 'fatura kesilir', 'fatura mevcuttur',
+
+  // YENİ EKLENEN BOT/SPAM CÜMLELERİ
+  'kaliteli yuk', 'kaliteli yük', 'tasima programi', 'taşıma programı', 
+  'tasima isi', 'taşıma işi', 'yapilacak sevkiyat', 'yapılacak sevkiyat',
+  'bugunun kaliteli', 'bugünün kaliteli', 'bugunku yuk', 'bugünkü yük',
+  
+  // YENİ EKLENEN DİNİ/SOHBET SPAM CÜMLELERİ
+  'selam aleyk', 'aleykum selam', 'rahmetullahi', 'berekatuhu', 
+  'hayirli gunler', 'hayırlı günler', 'hayirli calismalar', 'hayırlı çalışmalar', 
+  'ugurunuz acik olsun', 'uğurunuz açık olsun'
 ];
 
 function spamMi(mesaj) {
   if (!mesaj) return true;
+  
+  // 1. Çok kısa veya çok uzun mesajları engelle
   if (mesaj.length < 10 || mesaj.length > 3000) return true;
   
-  const kucukMesaj = mesaj.toLowerCase('tr-TR');
-  const karaKelimeVar = KARA_KELIMELER.some(kelime => kucukMesaj.includes(kelime.toLowerCase('tr-TR')));
-  if (karaKelimeVar) return true;
+  // 2. SADECE TELEFON NUMARASI OLANLARI ENGELLE (5 harften az içeriyorsa çöptür)
+  const harfSayisi = (mesaj.match(/[a-zA-ZğüşıöçĞÜŞİÖÇ]/g) || []).length;
+  if (harfSayisi < 5) {
+    console.log('🚮 Spam Yakalandı (Sadece Numara/Yetersiz Harf):', mesaj.substring(0, 30));
+    return true; 
+  }
 
-  if (kucukMesaj.includes('http://') || kucukMesaj.includes('https://') || kucukMesaj.includes('channel')) return true;
+  const kucukMesaj = mesaj.toLowerCase('tr-TR');
+  
+  // 3. Kara kelime kontrolü
+  const karaKelimeVar = KARA_KELIMELER.some(kelime => kucukMesaj.includes(kelime.toLowerCase('tr-TR')));
+  if (karaKelimeVar) {
+    console.log('🚮 Spam Yakalandı (Kara Kelime):', mesaj.substring(0, 30));
+    return true;
+  }
+
+  // 4. Link kontrolü
+  if (kucukMesaj.includes('http://') || kucukMesaj.includes('https://') || kucukMesaj.includes('channel')) {
+    console.log('🚮 Spam Yakalandı (Link İçeriyor):', mesaj.substring(0, 30));
+    return true;
+  }
 
   return false;
 }
