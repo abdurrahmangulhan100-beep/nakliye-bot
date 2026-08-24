@@ -120,7 +120,52 @@ function metniNormalizeEt(text) {
     .trim();
 }
 
-// --- 5. GELİŞMİŞ SPAM VE BOT FİLTRESİ ---
+// --- 5. LOKASYON VE ŞEHİR KÜTÜPHANESİ ---
+const KISALTMALAR = {
+  'kny': { il: 'Konya' },
+  'ist': { il: 'İstanbul' },
+  'izmir': { il: 'İzmir' },
+  'ank': { il: 'Ankara' },
+  'adana': { il: 'Adana' },
+  'antep': { il: 'Gaziantep' },
+  'g.antep': { il: 'Gaziantep' },
+  'maras': { il: 'Kahramanmaraş' },
+  'k.maras': { il: 'Kahramanmaraş' },
+  'urfa': { il: 'Şanlıurfa' },
+  's.urfa': { il: 'Şanlıurfa' },
+  'egl': { il: 'Konya', ilce: 'Ereğli' },
+  'gebze': { il: 'Kocaeli', ilce: 'Gebze' },
+  'corlu': { il: 'Tekirdağ', ilce: 'Çorlu' },
+  'iskenderun': { il: 'Hatay', ilce: 'İskenderun' },
+  'inegol': { il: 'Bursa', ilce: 'İnegöl' }
+};
+
+const ILCE_IL_HARITASI = {
+  'ereğli': 'Konya', 'eregli': 'Konya', 'ilgın': 'Konya', 'ilgin': 'Konya',
+  'akşehir': 'Konya', 'aksehir': 'Konya', 'karapınar': 'Konya', 'karapinar': 'Konya',
+  'seydişehir': 'Konya', 'seydisehir': 'Konya', 'beyşehir': 'Konya', 'beysehir': 'Konya',
+  'kulu': 'Konya', 'cihanbeyli': 'Konya', 'çumra': 'Konya', 'cumra': 'Konya', 'doğanhisar': 'Konya',
+  'gebze': 'Kocaeli', 'dilovası': 'Kocaeli', 'körfez': 'Kocaeli',
+  'çorlu': 'Tekirdağ', 'çerkezköy': 'Tekirdağ', 'iskenderun': 'Hatay',
+  'ceyhan': 'Adana', 'bandırma': 'Balıkesir', 'inegöl': 'Bursa', 'nazilli': 'Aydın',
+  'söke': 'Aydın', 'aliağa': 'İzmir', 'torbalı': 'İzmir', 'menemen': 'İzmir',
+  'polatlı': 'Ankara', 'kazan': 'Ankara', 'çubuk': 'Ankara', 'tarsus': 'Mersin',
+  'turgutlu': 'Manisa', 'salihli': 'Manisa', 'akhisar': 'Manisa', 'kızıltepe': 'Mardin',
+  'silivri': 'İstanbul', 'esenyurt': 'İstanbul', 'nilüfer': 'Bursa', 'nilufer': 'Bursa'
+};
+
+const ILLER = [
+  "Adana", "Adıyaman", "Afyonkarahisar", "Ağrı", "Amasya", "Ankara", "Antalya", "Artvin", "Aydın", "Balıkesir",
+  "Bilecik", "Bingöl", "Bitlis", "Bolu", "Burdur", "Bursa", "Çanakkale", "Çankırı", "Çorum", "Denizli",
+  "Diyarbakır", "Edirne", "Elazığ", "Erzincan", "Erzurum", "Eskişehir", "Gaziantep", "Giresun", "Gümüşhane", "Hakkari",
+  "Hatay", "Isparta", "Mersin", "İstanbul", "İzmir", "Kars", "Kastamonu", "Kayseri", "Kırklareli", "Kırşehir",
+  "Kocaeli", "Konya", "Kütahya", "Malatya", "Manisa", "Kahramanmaraş", "Mardin", "Muğla", "Muş", "Nevşehir",
+  "Niğde", "Ordu", "Rize", "Sakarya", "Samsun", "Siirt", "Sinop", "Sivas", "Tekirdağ", "Tokat",
+  "Trabzon", "Tunceli", "Şanlıurfa", "Uşak", "Van", "Yozgat", "Zonguldak", "Aksaray", "Bayburt", "Karaman",
+  "Kırıkkale", "Batman", "Şırnak", "Bartın", "Ardahan", "Iğdır", "Yalova", "Karabük", "Kilis", "Osmaniye", "Düzce"
+];
+
+// --- 6. GELİŞMİŞ SPAM VE BOT FİLTRESİ ---
 const KARA_KELIMELER_HAM = [
   // Evden Eve / Mobilya
   'evden eve', 'ev tasima', 'parca esya', 'ceyiz tasima', 'ofis tasima', 'asansorlu nakliyat',
@@ -152,11 +197,18 @@ const KARA_KELIMELER_HAM = [
 
 const KARA_KELIMELER = KARA_KELIMELER_HAM.map(k => metniNormalizeEt(k));
 
+// Karmaşık boşluklu veya satır başı karakter atlatmalarını engelleyen REGEX kalıpları
+const KARA_REGEX = [
+  /bugun.*yuk/i, /tasima.*isi/i, /yuk.*havuzu/i, /canli.*yuk/i,
+  /sevkiyat.*listesi/i, /otomatik.*paylasim/i, /evden.*eve/i,
+  /parca.*esya/i, /sofor.*aran/i, /kapora/i, /guvenli.*odeme/i
+];
+
 function spamMi(mesaj) {
   if (!mesaj) return true;
   
   // 1. Çok kısa veya aşırı uzun mesajlar
-  if (mesaj.length < 10 || mesaj.length > 3000) return true;
+  if (mesaj.length < 10 || mesaj.length > 2500) return true;
   
   // 2. Yetersiz harf sayısı
   const harfSayisi = (mesaj.match(/[a-zA-ZğüşıöçĞÜŞİÖÇ]/g) || []).length;
@@ -165,30 +217,43 @@ function spamMi(mesaj) {
   // 3. Metni normalize et
   const temizMesaj = metniNormalizeEt(mesaj);
   
-  // 4. Kara kelime kontrolü
+  // 4. Kara Regex Kalıp Kontrolü
+  if (KARA_REGEX.some(regex => regex.test(temizMesaj))) {
+    console.log('🚮 Spam Engellendi (Kara Regex Kalıbı):', mesaj.substring(0, 35).replace(/\n/g, ' '));
+    return true;
+  }
+
+  // 5. Klasik Kara Kelime Kontrolü
   const yakalanan = KARA_KELIMELER.find(kelime => temizMesaj.includes(kelime));
   if (yakalanan) {
     console.log(`🚮 Spam Engellendi [Kelime: "${yakalanan}"]:`, mesaj.substring(0, 35).replace(/\n/g, ' '));
     return true;
   }
 
-  // 5. Link Kontrolü
-  if (temizMesaj.includes('http') || temizMesaj.includes('https') || temizMesaj.includes('channel')) {
+  // 6. Link Kontrolü
+  if (temizMesaj.includes('http') || temizMesaj.includes('https') || temizMesaj.includes('channel') || temizMesaj.includes('t me') || temizMesaj.includes('wa me')) {
     console.log('🚮 Spam Engellendi (Link Var):', mesaj.substring(0, 30));
     return true;
   }
 
-  // 6. Çoklu Şehir İlanı (Bot Listeleri)
-  const gecenIlSayisi = ILLER.filter(il => temizMesaj.includes(metniNormalizeEt(il))).length;
-  if (gecenIlSayisi > 4) {
-    console.log('🚮 Spam Engellendi (Toplu Bot Liste):', mesaj.substring(0, 30));
+  // 7. Çoklu Parsiyel Kontrolü
+  const parsiyelSayisi = (temizMesaj.match(/parsiyel/g) || []).length;
+  if (parsiyelSayisi >= 2) {
+    console.log('🚮 Spam Engellendi (Çoklu Parsiyel Listesi):', mesaj.substring(0, 35).replace(/\n/g, ' '));
+    return true;
+  }
+
+  // 8. TOPLU BOT LİSTESİ ENGELİ (İl + İlçe + Kısaltma Taraması)
+  const ayristirilan = gelismisMesajAyristir(mesaj);
+  if (ayristirilan.toplam_lokasyon_sayisi >= 3) {
+    console.log(`🚮 Spam Engellendi (Toplu Bot Liste - ${ayristirilan.toplam_lokasyon_sayisi} Lokasyon):`, mesaj.substring(0, 35).replace(/\n/g, ' '));
     return true;
   }
 
   return false;
 }
 
-// --- 6. PARMAK İZİ BAZLI MÜKERRER İLAN ENGELLEME ---
+// --- 7. PARMAK İZİ BAZLI MÜKERRER İLAN ENGELLEME ---
 const mesajEngelleri = new Map();
 const MESAJ_ENGEL_SURESI_MS = 2 * 60 * 60 * 1000; // 2 Saat boyunca aynı içerik bloklanır
 
@@ -220,50 +285,7 @@ function mukerrerIlanMi(mesajMetni) {
   return false;
 }
 
-// --- 7. ŞEHİR / İLÇE PARSER KÜTÜPHANESİ ---
-const KISALTMALAR = {
-  'kny': { il: 'Konya' },
-  'ist': { il: 'İstanbul' },
-  'izmir': { il: 'İzmir' },
-  'ank': { il: 'Ankara' },
-  'adana': { il: 'Adana' },
-  'antep': { il: 'Gaziantep' },
-  'g.antep': { il: 'Gaziantep' },
-  'maras': { il: 'Kahramanmaraş' },
-  'k.maras': { il: 'Kahramanmaraş' },
-  'urfa': { il: 'Şanlıurfa' },
-  's.urfa': { il: 'Şanlıurfa' },
-  'egl': { il: 'Konya', ilce: 'Ereğli' },
-  'gebze': { il: 'Kocaeli', ilce: 'Gebze' },
-  'corlu': { il: 'Tekirdağ', ilce: 'Çorlu' },
-  'iskenderun': { il: 'Hatay', ilce: 'İskenderun' },
-  'inegol': { il: 'Bursa', ilce: 'İnegöl' }
-};
-
-const ILCE_IL_HARITASI = {
-  'ereğli': 'Konya', 'eregli': 'Konya', 'ilgın': 'Konya', 'ilgin': 'Konya',
-  'akşehir': 'Konya', 'aksehir': 'Konya', 'karapınar': 'Konya', 'karapinar': 'Konya',
-  'seydişehir': 'Konya', 'seydisehir': 'Konya', 'beyşehir': 'Konya', 'beysehir': 'Konya',
-  'kulu': 'Konya', 'cihanbeyli': 'Konya', 'çumra': 'Konya', 'cumra': 'Konya', 'doğanhisar': 'Konya',
-  'gebze': 'Kocaeli', 'dilovası': 'Kocaeli', 'körfez': 'Kocaeli',
-  'çorlu': 'Tekirdağ', 'çerkezköy': 'Tekirdağ', 'iskenderun': 'Hatay',
-  'ceyhan': 'Adana', 'bandırma': 'Balıkesir', 'inegöl': 'Bursa', 'nazilli': 'Aydın',
-  'söke': 'Aydın', 'aliağa': 'İzmir', 'torbalı': 'İzmir', 'menemen': 'İzmir',
-  'polatlı': 'Ankara', 'kazan': 'Ankara', 'çubuk': 'Ankara', 'tarsus': 'Mersin',
-  'turgutlu': 'Manisa', 'salihli': 'Manisa', 'akhisar': 'Manisa', 'kızıltepe': 'Mardin'
-};
-
-const ILLER = [
-  "Adana", "Adıyaman", "Afyonkarahisar", "Ağrı", "Amasya", "Ankara", "Antalya", "Artvin", "Aydın", "Balıkesir",
-  "Bilecik", "Bingöl", "Bitlis", "Bolu", "Burdur", "Bursa", "Çanakkale", "Çankırı", "Çorum", "Denizli",
-  "Diyarbakır", "Edirne", "Elazığ", "Erzincan", "Erzurum", "Eskişehir", "Gaziantep", "Giresun", "Gümüşhane", "Hakkari",
-  "Hatay", "Isparta", "Mersin", "İstanbul", "İzmir", "Kars", "Kastamonu", "Kayseri", "Kırklareli", "Kırşehir",
-  "Kocaeli", "Konya", "Kütahya", "Malatya", "Manisa", "Kahramanmaraş", "Mardin", "Muğla", "Muş", "Nevşehir",
-  "Niğde", "Ordu", "Rize", "Sakarya", "Samsun", "Siirt", "Sinop", "Sivas", "Tekirdağ", "Tokat",
-  "Trabzon", "Tunceli", "Şanlıurfa", "Uşak", "Van", "Yozgat", "Zonguldak", "Aksaray", "Bayburt", "Karaman",
-  "Kırıkkale", "Batman", "Şırnak", "Bartın", "Ardahan", "Iğdır", "Yalova", "Karabük", "Kilis", "Osmaniye", "Düzce"
-];
-
+// --- 8. ŞEHİR / İLÇE PARSER KÜTÜPHANESİ ---
 function htmlTemizle(text) {
   if (!text) return '';
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -357,11 +379,12 @@ function gelismisMesajAyristir(mesajMetni) {
     varis_ili,
     varis_ilcesi,
     nereden: kalkis_ilcesi ? `${kalkis_ili} / ${kalkis_ilcesi}` : kalkis_ili,
-    nereye: varis_ilcesi ? `${varis_ili} / ${varis_ilcesi}` : varis_ili
+    nereye: varis_ilcesi ? `${varis_ili} / ${varis_ilcesi}` : varis_ili,
+    toplam_lokasyon_sayisi: benzersiz.length
   };
 }
 
-// --- 8. OTOMATİK VERİTABANI TEMİZLEYİCİ (10 SAAT LİMİTİ) ---
+// --- 9. OTOMATİK VERİTABANI TEMİZLEYİCİ (10 SAAT LİMİTİ) ---
 async function eskiIlanlariTemizle() {
   try {
     const onSaatOnce = new Date(Date.now() - 10 * 60 * 60 * 1000).toISOString();
@@ -380,7 +403,7 @@ async function eskiIlanlariTemizle() {
   }
 }
 
-// --- 9. BOTU BAŞLAT ---
+// --- 10. BOTU BAŞLAT ---
 async function botuBaslat() {
   // Veritabanı temizlik görevini başlat (Hemen çalışır ve her 1 saatte bir tekrarlar)
   eskiIlanlariTemizle();
