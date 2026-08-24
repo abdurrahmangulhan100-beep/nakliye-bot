@@ -100,10 +100,13 @@ function mesajMetniniCikar(messageObj) {
   );
 }
 
-// --- 4. GELİŞMİŞ TÜRKÇE METİN NORMALİZATÖRÜ ---
+// --- 4. ULTRASONİK TÜRKÇE VE UNICODE NORMALİZATÖRÜ ---
 function metniNormalizeEt(text) {
   if (!text) return '';
   return text
+    .replace(/[\u200B-\u200D\uFEFF]/g, '') // Görünmez karakterleri temizler
+    .replace(/İ/g, 'i')
+    .replace(/I/g, 'i')
     .toLowerCase('tr-TR')
     .replace(/ı/g, 'i')
     .replace(/i̇/g, 'i')
@@ -112,17 +115,19 @@ function metniNormalizeEt(text) {
     .replace(/ş/g, 's')
     .replace(/ö/g, 'o')
     .replace(/ç/g, 'c')
-    .replace(/[^a-z0-9\s]/g, ' ');
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
-// --- 5. HASSAS VE KESİN SPAM FİLTRESİ ---
-const KARA_KELIMELER = [
+// --- 5. GELİŞMİŞ VE KAPSAMLI SPAM FİLTRESİ ---
+const KARA_KELIMELER_HAM = [
   // Evden Eve / Mobilya
   'evden eve', 'ev tasima', 'parca esya', 'ceyiz tasima', 'ofis tasima', 'asansorlu nakliyat',
 
   // Grup / Kanal Reklamları & Linkler
   'whatsapp com', 'chat whatsapp', 't me', 'telegram me', 'gruba katil',
-  'grup daveti', 'kanalini takip', 'tikla katil', 'linke tikla',
+  'grup daveti', 'kanalini takip', 'tikla katil', 'linke tikla', 'wa me', 'joinchat',
 
   // Dolandırıcılık / Kapora Uyarıları
   'parana sahip cik', 'guvenli odeme', 'odeme garantisi', 'kapora',
@@ -131,94 +136,95 @@ const KARA_KELIMELER = [
   'satilik dukkan', 'devren dukkan', 'satilik araba',
   'hasar kayitsiz', 'tramersiz', 'takasli', 'ekspertiz',
 
-  // Personel / İş Aranyanlar
+  // Personel / İş Arayanlar
   'sofor araniyor', 'sofor alimi', 'kaptan araniyor',
   'maasli personel', 'usta araniyor', 'calisma arkadasi',
   
-  // Bot & Otomatik Mesaj Kalıpları
-  'kaliteli yuk', 'tasima programi', 'bugunun kaliteli',
+  // Qmove & Otomatik Bot Kalıpları
+  'qmove', 'kaliteli yuk', 'tasima programi', 'bugunun kaliteli',
   'yapilacak sevkiyat', 'tasima gorevi', 'planlanan tasima',
-  'bugunku yuk', 'tasima isi', 'nakliye yuku',
+  'bugunku yuk', 'tasima isi', 'nakliye yuku', 'yuk havuzu',
+  'canli yuk', 'sevkiyat listesi', 'otomatik paylasim',
 
   // Grup İçi Genel Sohbet
-  'grup kurallari', 'hayirli cumalar', 'bereketli olsun'
+  'grup kurallari', 'hayirli cumalar', 'bereketli olsun', 'selamun aleykum', 'hayirli isler'
 ];
+
+// Uygulama başlarken kara kelimeleri önceden normalize ederek RAM hızını artırıyoruz
+const KARA_KELIMELER = KARA_KELIMELER_HAM.map(k => metniNormalizeEt(k));
 
 function spamMi(mesaj) {
   if (!mesaj) return true;
   
-  // 1. Çok kısa mesajlar veya devasa metinler
+  // 1. Çok kısa veya aşırı uzun mesajlar
   if (mesaj.length < 10 || mesaj.length > 3000) return true;
   
-  // 2. Yetersiz harf içerenler
+  // 2. Yetersiz harf sayısı
   const harfSayisi = (mesaj.match(/[a-zA-ZğüşıöçĞÜŞİÖÇ]/g) || []).length;
-  if (harfSayisi < 5) {
-    console.log('🚮 Spam Yakalandı (Yetersiz Harf):', mesaj.substring(0, 30));
-    return true; 
-  }
+  if (harfSayisi < 5) return true; 
 
-  // 3. Metni Normalize Et (Türkçe Karakter Problemini Çözer)
+  // 3. Metni normalize et
   const temizMesaj = metniNormalizeEt(mesaj);
   
-  // 4. Nokta Atışı Kara Kelime Kontrolü
+  // 4. Kara kelime kontrolü
   const yakalanan = KARA_KELIMELER.find(kelime => temizMesaj.includes(kelime));
   if (yakalanan) {
-    console.log(`🚮 Spam Yakalandı [Yasaklı Kelime: "${yakalanan}"]:`, mesaj.substring(0, 40).replace(/\n/g, ' '));
+    console.log(`🚮 Spam Engellendi [Kelime: "${yakalanan}"]:`, mesaj.substring(0, 35).replace(/\n/g, ' '));
     return true;
   }
 
-  // 5. Link İçeren Spamlar
+  // 5. Link Kontrolü
   if (temizMesaj.includes('http') || temizMesaj.includes('https') || temizMesaj.includes('channel')) {
-    console.log('🚮 Spam Yakalandı (Link İçeriyor):', mesaj.substring(0, 30));
+    console.log('🚮 Spam Engellendi (Link Var):', mesaj.substring(0, 30));
     return true;
   }
 
-  // 6. Çoklu İl İlanları (Toplu Bot Liste İlanlarını Engeller)
-  const geçenİlSayısı = ILLER.filter(il => temizMesaj.includes(metniNormalizeEt(il))).length;
-  if (geçenİlSayısı > 4) {
-    console.log('🚮 Spam Yakalandı (Karmaşık / Toplu Bot İlanı):', mesaj.substring(0, 30));
+  // 6. Çoklu Şehir İlanı (Bot Listeleri)
+  const gecenIlSayisi = ILLER.filter(il => temizMesaj.includes(metniNormalizeEt(il))).length;
+  if (gecenIlSayisi > 4) {
+    console.log('🚮 Spam Engellendi (Toplu Bot Liste):', mesaj.substring(0, 30));
     return true;
   }
 
   return false;
 }
 
-// --- 6. MÜKERRER İLAN BLOKLAYICI ---
-const ilaniSuresiDolanaKadarEngelle = new Map();
-const MESAJ_ENGEL_SURESI_MS = 20 * 60 * 1000; // 20 Dakika
+// --- 6. GÜÇLENDİRİLMİŞ PARMAK İZİ BAZLI MÜKERRER İLAN ENGELLEMEYİ ---
+const mesajEngelleri = new Map();
+const MESAJ_ENGEL_SURESI_MS = 2 * 60 * 60 * 1000; // 2 Saat boyunca aynı içerik bloklanır
 
 function mukerrerIlanMi(mesajMetni) {
   if (!mesajMetni) return true;
   const simdi = Date.now();
   
-  const temizMetin = metniNormalizeEt(mesajMetni).replace(/\s+/g, '');
-    
-  if (temizMetin.length < 8) return true;
+  // Saat, tarih, telefon ve özel karakterler temizlenir.
+  // Sadece mesajın öz kütlesi (harfler) alınır. Qmove dynamic ID eklese dahi yakalanır.
+  const parmakIzi = metniNormalizeEt(mesajMetni).replace(/[^a-z]/g, '');
+  if (parmakIzi.length < 8) return true;
 
-  const mesajHash = crypto.createHash('md5').update(temizMetin).digest('hex');
-  const anahtar = `msg_${mesajHash}`;
+  const mesajHash = crypto.createHash('md5').update(parmakIzi).digest('hex');
 
-  if (ilaniSuresiDolanaKadarEngelle.has(anahtar)) {
-    const kayitZamani = ilaniSuresiDolanaKadarEngelle.get(anahtar);
+  if (mesajEngelleri.has(mesajHash)) {
+    const kayitZamani = mesajEngelleri.get(mesajHash);
     if (simdi - kayitZamani < MESAJ_ENGEL_SURESI_MS) {
       return true;
     }
   }
 
-  ilaniSuresiDolanaKadarEngelle.set(anahtar, simdi);
-
-  if (ilaniSuresiDolanaKadarEngelle.size > 4000) {
-    for (const [k, v] of ilaniSuresiDolanaKadarEngelle.entries()) {
-      if (simdi - v >= MESAJ_ENGEL_SURESI_MS) {
-        ilaniSuresiDolanaKadarEngelle.delete(k);
+  // Bellek temizliği (2 saatten eski kayıtlar silinir)
+  if (mesajEngelleri.size > 5000) {
+    for (const [hash, zam] of mesajEngelleri.entries()) {
+      if (simdi - zam >= MESAJ_ENGEL_SURESI_MS) {
+        mesajEngelleri.delete(hash);
       }
     }
   }
 
+  mesajEngelleri.set(mesajHash, simdi);
   return false;
 }
 
-// --- 7. GELİŞMİŞ ŞEHİR / İLÇE / KISALTMA VERİSİ VE PARSER ---
+// --- 7. ŞEHİR / İLÇE PARSER KÜTÜPHANESİ ---
 const KISALTMALAR = {
   'kny': { il: 'Konya' },
   'ist': { il: 'İstanbul' },
@@ -289,11 +295,11 @@ function gelismisMesajAyristir(mesajMetni) {
   }
 
   let aracTipi = 'Belirtilmedi';
-  const alt = mesajMetni.toLowerCase('tr-TR');
-  if (alt.includes('tır') || alt.includes('tir')) aracTipi = 'TIR';
+  const alt = metniNormalizeEt(mesajMetni);
+  if (alt.includes('tir')) aracTipi = 'TIR';
   else if (alt.includes('kamyonet')) aracTipi = 'Kamyonet';
   else if (alt.includes('kamyon')) aracTipi = 'Kamyon';
-  else if (alt.includes('kırkayak') || alt.includes('kirkayak')) aracTipi = 'Kırkayak';
+  else if (alt.includes('kirkayak')) aracTipi = 'Kırkayak';
   else if (alt.includes('damper')) aracTipi = 'Damperli';
   else if (alt.includes('dorse')) aracTipi = 'Dorse';
   else if (alt.includes('panelvan')) aracTipi = 'Panelvan';
@@ -420,10 +426,11 @@ async function botuBaslat() {
 
     const mesajMetni = mesajMetniniCikar(msg.message);
 
+    // ERKEN ÇIKIŞ (EARLY EXIT): Spam veya Mükerrer ise Supabase ve Telegram adımlarına HİÇ girmeden durdurulur
     if (spamMi(mesajMetni)) return;
 
     if (mukerrerIlanMi(mesajMetni)) {
-      console.log('⏳ Mükerrer/Tekrarlayan İlan atlandı.');
+      console.log('⏳ Mükerrer/Tekrarlayan İlan atlandı (RAM Seviyesinde Engellendi).');
       return;
     }
 
