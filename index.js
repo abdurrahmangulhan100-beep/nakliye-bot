@@ -104,7 +104,7 @@ function mesajMetniniCikar(messageObj) {
 function metniNormalizeEt(text) {
   if (!text) return '';
   return text
-    .replace(/[\u200B-\u200D\uFEFF]/g, '') // Görünmez karakterleri temizler
+    .replace(/[\u200B-\u200D\uFEFF]/g, '') // Gizli/görünmez Unicode karakterleri temizler
     .replace(/İ/g, 'i')
     .replace(/I/g, 'i')
     .toLowerCase('tr-TR')
@@ -120,7 +120,7 @@ function metniNormalizeEt(text) {
     .trim();
 }
 
-// --- 5. GELİŞMİŞ VE KAPSAMLI SPAM FİLTRESİ ---
+// --- 5. GELİŞMİŞ SPAM VE BOT FİLTRESİ ---
 const KARA_KELIMELER_HAM = [
   // Evden Eve / Mobilya
   'evden eve', 'ev tasima', 'parca esya', 'ceyiz tasima', 'ofis tasima', 'asansorlu nakliyat',
@@ -150,7 +150,6 @@ const KARA_KELIMELER_HAM = [
   'grup kurallari', 'hayirli cumalar', 'bereketli olsun', 'selamun aleykum', 'hayirli isler'
 ];
 
-// Uygulama başlarken kara kelimeleri önceden normalize ederek RAM hızını artırıyoruz
 const KARA_KELIMELER = KARA_KELIMELER_HAM.map(k => metniNormalizeEt(k));
 
 function spamMi(mesaj) {
@@ -189,7 +188,7 @@ function spamMi(mesaj) {
   return false;
 }
 
-// --- 6. GÜÇLENDİRİLMİŞ PARMAK İZİ BAZLI MÜKERRER İLAN ENGELLEMEYİ ---
+// --- 6. PARMAK İZİ BAZLI MÜKERRER İLAN ENGELLEME ---
 const mesajEngelleri = new Map();
 const MESAJ_ENGEL_SURESI_MS = 2 * 60 * 60 * 1000; // 2 Saat boyunca aynı içerik bloklanır
 
@@ -197,8 +196,6 @@ function mukerrerIlanMi(mesajMetni) {
   if (!mesajMetni) return true;
   const simdi = Date.now();
   
-  // Saat, tarih, telefon ve özel karakterler temizlenir.
-  // Sadece mesajın öz kütlesi (harfler) alınır. Qmove dynamic ID eklese dahi yakalanır.
   const parmakIzi = metniNormalizeEt(mesajMetni).replace(/[^a-z]/g, '');
   if (parmakIzi.length < 8) return true;
 
@@ -211,7 +208,6 @@ function mukerrerIlanMi(mesajMetni) {
     }
   }
 
-  // Bellek temizliği (2 saatten eski kayıtlar silinir)
   if (mesajEngelleri.size > 5000) {
     for (const [hash, zam] of mesajEngelleri.entries()) {
       if (simdi - zam >= MESAJ_ENGEL_SURESI_MS) {
@@ -365,8 +361,31 @@ function gelismisMesajAyristir(mesajMetni) {
   };
 }
 
-// --- 8. BOTU BAŞLAT ---
+// --- 8. OTOMATİK VERİTABANI TEMİZLEYİCİ (10 SAAT LİMİTİ) ---
+async function eskiIlanlariTemizle() {
+  try {
+    const onSaatOnce = new Date(Date.now() - 10 * 60 * 60 * 1000).toISOString();
+    const { error, count } = await supabase
+      .from('ilanlar')
+      .delete({ count: 'exact' })
+      .lt('created_at', onSaatOnce);
+
+    if (error) {
+      console.error('⚠️ Otomatik silme hatası:', error.message);
+    } else {
+      console.log(`🧹 Otomatik Temizlik: 10 saatten eski ilanlar silindi. (${count || 0} kayıt temizlendi)`);
+    }
+  } catch (err) {
+    console.error('⚠️ Temizlik sırasında beklenmeyen hata:', err.message);
+  }
+}
+
+// --- 9. BOTU BAŞLAT ---
 async function botuBaslat() {
+  // Veritabanı temizlik görevini başlat (Hemen çalışır ve her 1 saatte bir tekrarlar)
+  eskiIlanlariTemizle();
+  setInterval(eskiIlanlariTemizle, 60 * 60 * 1000);
+
   const { state, saveCreds } = await useMultiFileAuthState('auth_info');
   const { version } = await fetchLatestBaileysVersion();
 
@@ -426,7 +445,7 @@ async function botuBaslat() {
 
     const mesajMetni = mesajMetniniCikar(msg.message);
 
-    // ERKEN ÇIKIŞ (EARLY EXIT): Spam veya Mükerrer ise Supabase ve Telegram adımlarına HİÇ girmeden durdurulur
+    // Spam veya mükerrer mesaj ise veritabanına ve Telegram'a gitmeden direkt durdurulur
     if (spamMi(mesajMetni)) return;
 
     if (mukerrerIlanMi(mesajMetni)) {
