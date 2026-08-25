@@ -1,3 +1,12 @@
+// --- 0. NODE.JS ÇÖKME KORUMASI (ANTI-CRASH) ---
+process.on('uncaughtException', (err) => {
+  console.error('🔥 Beklenmeyen Kritik Hata (Uygulama çökmekten kurtarıldı):', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('🔥 Yakalanamayan Promise Hatası:', reason);
+});
+
 const { 
   default: makeWASocket, 
   DisconnectReason, 
@@ -104,7 +113,7 @@ function mesajMetniniCikar(messageObj) {
 function metniNormalizeEt(text) {
   if (!text) return '';
   return text
-    .replace(/[\u200B-\u200D\uFEFF]/g, '') // Gizli/görünmez Unicode karakterleri temizler
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
     .replace(/İ/g, 'i')
     .replace(/I/g, 'i')
     .toLowerCase('tr-TR')
@@ -120,7 +129,7 @@ function metniNormalizeEt(text) {
     .trim();
 }
 
-// --- 5. LOKASYON VE ŞEHİR KÜTÜPHANESİ ---
+// --- 5. LOKASYON KÜTÜPHANESİ VE PRE-COMPILED REGEX'LER (PERFORMANS OPTİMİZASYONU) ---
 const KISALTMALAR = {
   'kny': { il: 'Konya' },
   'ist': { il: 'İstanbul' },
@@ -159,45 +168,47 @@ const ILLER = [
   "Bilecik", "Bingöl", "Bitlis", "Bolu", "Burdur", "Bursa", "Çanakkale", "Çankırı", "Çorum", "Denizli",
   "Diyarbakır", "Edirne", "Elazığ", "Erzincan", "Erzurum", "Eskişehir", "Gaziantep", "Giresun", "Gümüşhane", "Hakkari",
   "Hatay", "Isparta", "Mersin", "İstanbul", "İzmir", "Kars", "Kastamonu", "Kayseri", "Kırklareli", "Kırşehir",
-  "Kocaeli", "Konya", "Kütahya", "Malatya", "Manisa", "Kahramanmaraş", "Mardin", "Muğla", "Muş", "Nevşehir",
+  "Kocaeli", "Konya", "Kütahya", "Malatya", "Manisa", "Kahramanmaraş", "Mardin", "MUGla", "Muş", "Nevşehir",
   "Niğde", "Ordu", "Rize", "Sakarya", "Samsun", "Siirt", "Sinop", "Sivas", "Tekirdağ", "Tokat",
   "Trabzon", "Tunceli", "Şanlıurfa", "Uşak", "Van", "Yozgat", "Zonguldak", "Aksaray", "Bayburt", "Karaman",
   "Kırıkkale", "Batman", "Şırnak", "Bartın", "Ardahan", "Iğdır", "Yalova", "Karabük", "Kilis", "Osmaniye", "Düzce"
 ];
 
+// CPU Tüketimini Önlemek İçin Önceden Derlenmiş (Pre-compiled) Regex Nesneleri
+const PRECOMPILED_KISALTMALAR = Object.entries(KISALTMALAR).map(([kisaltma, bilgi]) => ({
+  regex: new RegExp(`\\b${kisaltma}\\b`, 'i'),
+  il: bilgi.il,
+  ilce: bilgi.ilce || null
+}));
+
+const PRECOMPILED_ILCE_IL = Object.entries(ILCE_IL_HARITASI).map(([ilce, bagliIl]) => ({
+  regex: new RegExp(`\\b${ilce}\\b`, 'i'),
+  ilce: ilce.charAt(0).toUpperCase() + ilce.slice(1),
+  il: bagliIl
+}));
+
+const PRECOMPILED_ILLER = ILLER.map(il => ({
+  regex: new RegExp(`\\b${il}\\b`, 'i'),
+  il: il
+}));
+
+const TEL_REGEX = /(?:(?:\+?90)|0)?\s*[5][0-9]{2}\s*[0-9]{3}\s*[0-9]{2}\s*[0-9]{2}/g;
+
 // --- 6. GELİŞMİŞ SPAM VE BOT FİLTRESİ ---
 const KARA_KELIMELER_HAM = [
-  // Evden Eve / Mobilya
   'evden eve', 'ev tasima', 'parca esya', 'ceyiz tasima', 'ofis tasima', 'asansorlu nakliyat',
-
-  // Grup / Kanal Reklamları & Linkler
   'whatsapp com', 'chat whatsapp', 't me', 'telegram me', 'gruba katil',
   'grup daveti', 'kanalini takip', 'tikla katil', 'linke tikla', 'wa me', 'joinchat',
-
-  // Dolandırıcılık / Kapora Uyarıları
   'parana sahip cik', 'guvenli odeme', 'odeme garantisi', 'kapora',
-
-  // Araç / Gayrimenkul Satışı
-  'satilik dukkan', 'devren dukkan', 'satilik araba',
-  'hasar kayitsiz', 'tramersiz', 'takasli', 'ekspertiz',
-
-  // Personel / İş Arayanlar
-  'sofor araniyor', 'sofor alimi', 'kaptan araniyor',
-  'maasli personel', 'usta araniyor', 'calisma arkadasi',
-  
-  // Qmove & Otomatik Bot Kalıpları
-  'qmove', 'kaliteli yuk', 'tasima programi', 'bugunun kaliteli',
-  'yapilacak sevkiyat', 'tasima gorevi', 'planlanan tasima',
-  'bugunku yuk', 'tasima isi', 'nakliye yuku', 'yuk havuzu',
-  'canli yuk', 'sevkiyat listesi', 'otomatik paylasim',
-
-  // Grup İçi Genel Sohbet
+  'satilik dukkan', 'devren dukkan', 'satilik araba', 'hasar kayitsiz', 'tramersiz', 'takasli', 'ekspertiz',
+  'sofor araniyor', 'sofor alimi', 'kaptan araniyor', 'maasli personel', 'usta araniyor', 'calisma arkadasi',
+  'qmove', 'kaliteli yuk', 'tasima programi', 'bugunun kaliteli', 'yapilacak sevkiyat', 'tasima gorevi',
+  'planlanan tasima', 'bugunku yuk', 'tasima isi', 'nakliye yuku', 'yuk havuzu', 'canli yuk', 'sevkiyat listesi', 'otomatik paylasim',
   'grup kurallari', 'hayirli cumalar', 'bereketli olsun', 'selamun aleykum', 'hayirli isler'
 ];
 
 const KARA_KELIMELER = KARA_KELIMELER_HAM.map(k => metniNormalizeEt(k));
 
-// Karmaşık boşluklu veya satır başı karakter atlatmalarını engelleyen REGEX kalıpları
 const KARA_REGEX = [
   /bugun.*yuk/i, /tasima.*isi/i, /yuk.*havuzu/i, /canli.*yuk/i,
   /sevkiyat.*listesi/i, /otomatik.*paylasim/i, /evden.*eve/i,
@@ -206,44 +217,35 @@ const KARA_REGEX = [
 
 function spamMi(mesaj) {
   if (!mesaj) return true;
-  
-  // 1. Çok kısa veya aşırı uzun mesajlar
   if (mesaj.length < 10 || mesaj.length > 2500) return true;
   
-  // 2. Yetersiz harf sayısı
   const harfSayisi = (mesaj.match(/[a-zA-ZğüşıöçĞÜŞİÖÇ]/g) || []).length;
   if (harfSayisi < 5) return true; 
 
-  // 3. Metni normalize et
   const temizMesaj = metniNormalizeEt(mesaj);
   
-  // 4. Kara Regex Kalıp Kontrolü
   if (KARA_REGEX.some(regex => regex.test(temizMesaj))) {
     console.log('🚮 Spam Engellendi (Kara Regex Kalıbı):', mesaj.substring(0, 35).replace(/\n/g, ' '));
     return true;
   }
 
-  // 5. Klasik Kara Kelime Kontrolü
   const yakalanan = KARA_KELIMELER.find(kelime => temizMesaj.includes(kelime));
   if (yakalanan) {
     console.log(`🚮 Spam Engellendi [Kelime: "${yakalanan}"]:`, mesaj.substring(0, 35).replace(/\n/g, ' '));
     return true;
   }
 
-  // 6. Link Kontrolü
   if (temizMesaj.includes('http') || temizMesaj.includes('https') || temizMesaj.includes('channel') || temizMesaj.includes('t me') || temizMesaj.includes('wa me')) {
     console.log('🚮 Spam Engellendi (Link Var):', mesaj.substring(0, 30));
     return true;
   }
 
-  // 7. Çoklu Parsiyel Kontrolü
   const parsiyelSayisi = (temizMesaj.match(/parsiyel/g) || []).length;
   if (parsiyelSayisi >= 2) {
     console.log('🚮 Spam Engellendi (Çoklu Parsiyel Listesi):', mesaj.substring(0, 35).replace(/\n/g, ' '));
     return true;
   }
 
-  // 8. TOPLU BOT LİSTESİ ENGELİ (İl + İlçe + Kısaltma Taraması)
   const ayristirilan = gelismisMesajAyristir(mesaj);
   if (ayristirilan.toplam_lokasyon_sayisi >= 3) {
     console.log(`🚮 Spam Engellendi (Toplu Bot Liste - ${ayristirilan.toplam_lokasyon_sayisi} Lokasyon):`, mesaj.substring(0, 35).replace(/\n/g, ' '));
@@ -255,7 +257,7 @@ function spamMi(mesaj) {
 
 // --- 7. PARMAK İZİ BAZLI MÜKERRER İLAN ENGELLEME ---
 const mesajEngelleri = new Map();
-const MESAJ_ENGEL_SURESI_MS = 2 * 60 * 60 * 1000; // 2 Saat boyunca aynı içerik bloklanır
+const MESAJ_ENGEL_SURESI_MS = 2 * 60 * 60 * 1000; // 2 Saat
 
 function mukerrerIlanMi(mesajMetni) {
   if (!mesajMetni) return true;
@@ -270,14 +272,6 @@ function mukerrerIlanMi(mesajMetni) {
     const kayitZamani = mesajEngelleri.get(mesajHash);
     if (simdi - kayitZamani < MESAJ_ENGEL_SURESI_MS) {
       return true;
-    }
-  }
-
-  if (mesajEngelleri.size > 5000) {
-    for (const [hash, zam] of mesajEngelleri.entries()) {
-      if (simdi - zam >= MESAJ_ENGEL_SURESI_MS) {
-        mesajEngelleri.delete(hash);
-      }
     }
   }
 
@@ -305,8 +299,7 @@ async function telegramaGonder(metin) {
 }
 
 function gelismisMesajAyristir(mesajMetni) {
-  const telRegex = /(?:(?:\+?90)|0)?\s*[5][0-9]{2}\s*[0-9]{3}\s*[0-9]{2}\s*[0-9]{2}/g;
-  const telEsllesmeler = mesajMetni.match(telRegex);
+  const telEsllesmeler = mesajMetni.match(TEL_REGEX);
   let telefon = null;
   if (telEsllesmeler && telEsllesmeler.length > 0) {
     telefon = telEsllesmeler.map(t => t.replace(/\s+/g, '').replace(/\+90/, '0')).join(' / ');
@@ -324,28 +317,20 @@ function gelismisMesajAyristir(mesajMetni) {
 
   const tespitEdilenler = [];
 
-  for (const [kisaltma, bilgi] of Object.entries(KISALTMALAR)) {
-    const reg = new RegExp(`\\b${kisaltma}\\b`, 'i');
-    const m = mesajMetni.match(reg);
-    if (m) {
-      tespitEdilenler.push({ il: bilgi.il, ilce: bilgi.ilce || null, index: m.index });
-    }
-  }
+  // Derlenmiş Regex Nesneleri ile Hızlı Tarama
+  PRECOMPILED_KISALTMALAR.forEach(item => {
+    const m = mesajMetni.match(item.regex);
+    if (m) tespitEdilenler.push({ il: item.il, ilce: item.ilce, index: m.index });
+  });
 
-  for (const [ilce, bagliIl] of Object.entries(ILCE_IL_HARITASI)) {
-    const reg = new RegExp(`\\b${ilce}\\b`, 'i');
-    const m = mesajMetni.match(reg);
-    if (m) {
-      tespitEdilenler.push({ il: bagliIl, ilce: ilce.charAt(0).toUpperCase() + ilce.slice(1), index: m.index });
-    }
-  }
+  PRECOMPILED_ILCE_IL.forEach(item => {
+    const m = mesajMetni.match(item.regex);
+    if (m) tespitEdilenler.push({ il: item.il, ilce: item.ilce, index: m.index });
+  });
 
-  ILLER.forEach(il => {
-    const reg = new RegExp(`\\b${il}\\b`, 'i');
-    const m = mesajMetni.match(reg);
-    if (m) {
-      tespitEdilenler.push({ il: il, ilce: null, index: m.index });
-    }
+  PRECOMPILED_ILLER.forEach(item => {
+    const m = mesajMetni.match(item.regex);
+    if (m) tespitEdilenler.push({ il: item.il, ilce: null, index: m.index });
   });
 
   tespitEdilenler.sort((a, b) => a.index - b.index);
@@ -384,7 +369,7 @@ function gelismisMesajAyristir(mesajMetni) {
   };
 }
 
-// --- 9. OTOMATİK VERİTABANI TEMİZLEYİCİ (10 SAAT LİMİTİ) ---
+// --- 9. OTOMATİK VERİTABANI VE RAM TEMİZLEYİCİ ---
 async function eskiIlanlariTemizle() {
   try {
     const onSaatOnce = new Date(Date.now() - 10 * 60 * 60 * 1000).toISOString();
@@ -393,11 +378,8 @@ async function eskiIlanlariTemizle() {
       .delete({ count: 'exact' })
       .lt('created_at', onSaatOnce);
 
-    if (error) {
-      console.error('⚠️ Otomatik silme hatası:', error.message);
-    } else {
-      console.log(`🧹 Otomatik Temizlik: 10 saatten eski ilanlar silindi. (${count || 0} kayıt temizlendi)`);
-    }
+    if (error) console.error('⚠️ Otomatik silme hatası:', error.message);
+    else console.log(`🧹 Otomatik Temizlik: 10 saatten eski ilanlar silindi. (${count || 0} kayıt temizlendi)`);
   } catch (err) {
     console.error('⚠️ Temizlik sırasında beklenmeyen hata:', err.message);
   }
@@ -405,9 +387,19 @@ async function eskiIlanlariTemizle() {
 
 // --- 10. BOTU BAŞLAT ---
 async function botuBaslat() {
-  // Veritabanı temizlik görevini başlat (Hemen çalışır ve her 1 saatte bir tekrarlar)
+  // DB Temizliği (Her 1 saatte bir)
   eskiIlanlariTemizle();
   setInterval(eskiIlanlariTemizle, 60 * 60 * 1000);
+
+  // RAM Temizliği (Her 1 saatte bir eski hash'leri hafızadan siler)
+  setInterval(() => {
+    const simdi = Date.now();
+    for (const [hash, zam] of mesajEngelleri.entries()) {
+      if (simdi - zam >= MESAJ_ENGEL_SURESI_MS) {
+        mesajEngelleri.delete(hash);
+      }
+    }
+  }, 60 * 60 * 1000);
 
   const { state, saveCreds } = await useMultiFileAuthState('auth_info');
   const { version } = await fetchLatestBaileysVersion();
@@ -462,49 +454,27 @@ async function botuBaslat() {
     }
   });
 
+  // BATCH MESAJ İŞLEME VE PARALEL I/O
   sock.ev.on('messages.upsert', async (m) => {
-    const msg = m.messages[0];
-    if (!msg || !msg.message || msg.key.fromMe || !msg.key.remoteJid?.endsWith('@g.us')) return;
+    if (!m.messages || m.messages.length === 0) return;
 
-    const mesajMetni = mesajMetniniCikar(msg.message);
+    for (const msg of m.messages) {
+      if (!msg || !msg.message || msg.key.fromMe || !msg.key.remoteJid?.endsWith('@g.us')) continue;
 
-    // Spam veya mükerrer mesaj ise veritabanına ve Telegram'a gitmeden direkt durdurulur
-    if (spamMi(mesajMetni)) return;
+      const mesajMetni = mesajMetniniCikar(msg.message);
 
-    if (mukerrerIlanMi(mesajMetni)) {
-      console.log('⏳ Mükerrer/Tekrarlayan İlan atlandı (RAM Seviyesinde Engellendi).');
-      return;
-    }
+      if (spamMi(mesajMetni)) continue;
 
-    const veriler = gelismisMesajAyristir(mesajMetni);
-
-    console.log('📩 Yeni İlan Parse Edildi: ' + mesajMetni.substring(0, 40).replace(/\n/g, ' ') + '...');
-
-    // SUPABASE VERİTABANINA EKLEME
-    try {
-      const { error } = await supabase
-        .from('ilanlar')
-        .insert([
-          {
-            title: veriler.arac_tipi !== 'Belirtilmedi' ? veriler.arac_tipi : 'Nakliye İlanı',
-            content: veriler.ham_mesaj,
-            phone: veriler.telefon,
-            city_from: veriler.nereden,
-            city_to: veriler.nereye
-          }
-        ]);
-
-      if (error) {
-        console.error('❌ Supabase Kayıt Hatası:', error.message);
-      } else {
-        console.log('⚡ İlan Supabase veritabanına kaydedildi!');
+      if (mukerrerIlanMi(mesajMetni)) {
+        console.log('⏳ Mükerrer/Tekrarlayan İlan atlandı (RAM Seviyesinde Engellendi).');
+        continue;
       }
-    } catch (err) {
-      console.error('❌ Beklenmeyen Supabase Hatası:', err.message);
-    }
 
-    // TELEGRAM BİLDİRİMİ
-    const telegramMesaj = 
+      const veriler = gelismisMesajAyristir(mesajMetni);
+
+      console.log('📩 Yeni İlan Parse Edildi: ' + mesajMetni.substring(0, 40).replace(/\n/g, ' ') + '...');
+
+      const telegramMesaj = 
 `📦 <b>YENİ NAKLİYE İLANI</b>
 
 📍 <b>Rota:</b> ${veriler.nereden || 'Belirtilmedi'} ➡️ ${veriler.nereye || 'Belirtilmedi'}
@@ -517,7 +487,29 @@ ${htmlTemizle(veriler.ham_mesaj)}
 ───────────────
 📲 <i>Nakliye Cepte canlı yük akışı</i>`;
 
-    await telegramaGonder(telegramMesaj);
+      // SUPABASE VE TELEGRAM İŞLEMLERİNİ PARALEL BAŞLAT
+      const supabaseKayit = supabase
+        .from('ilanlar')
+        .insert([
+          {
+            title: veriler.arac_tipi !== 'Belirtilmedi' ? veriler.arac_tipi : 'Nakliye İlanı',
+            content: veriler.ham_mesaj,
+            phone: veriler.telefon,
+            city_from: veriler.nereden,
+            city_to: veriler.nereye
+          }
+        ])
+        .then(({ error }) => {
+          if (error) console.error('❌ Supabase Kayıt Hatası:', error.message);
+          else console.log('⚡ İlan Supabase veritabanına kaydedildi!');
+        })
+        .catch(err => console.error('❌ Beklenmeyen Supabase Hatası:', err.message));
+
+      const telegramGonderim = telegramaGonder(telegramMesaj);
+
+      // İki asenkron işlemi paralel bekle (Birbirini asla bloklamaz)
+      await Promise.allSettled([supabaseKayit, telegramGonderim]);
+    }
   });
 }
 
