@@ -129,7 +129,7 @@ function metniNormalizeEt(text) {
     .trim();
 }
 
-// --- 5. LOKASYON KÜTÜPHANESİ VE PRE-COMPILED REGEX'LER (PERFORMANS OPTİMİZASYONU) ---
+// --- 5. LOKASYON KÜTÜPHANESİ VE PRE-COMPILED REGEX'LER ---
 const KISALTMALAR = {
   'kny': { il: 'Konya' },
   'ist': { il: 'İstanbul' },
@@ -174,7 +174,6 @@ const ILLER = [
   "Kırıkkale", "Batman", "Şırnak", "Bartın", "Ardahan", "Iğdır", "Yalova", "Karabük", "Kilis", "Osmaniye", "Düzce"
 ];
 
-// CPU Tüketimini Önlemek İçin Önceden Derlenmiş (Pre-compiled) Regex Nesneleri
 const PRECOMPILED_KISALTMALAR = Object.entries(KISALTMALAR).map(([kisaltma, bilgi]) => ({
   regex: new RegExp(`\\b${kisaltma}\\b`, 'i'),
   il: bilgi.il,
@@ -194,25 +193,53 @@ const PRECOMPILED_ILLER = ILLER.map(il => ({
 
 const TEL_REGEX = /(?:(?:\+?90)|0)?\s*[5][0-9]{2}\s*[0-9]{3}\s*[0-9]{2}\s*[0-9]{2}/g;
 
-// --- 6. GELİŞMİŞ SPAM VE BOT FİLTRESİ ---
+// --- 6. GELİŞMİŞ SPAM VE BOT FİLTRESİ (GÜNCELLENDİ) ---
 const KARA_KELIMELER_HAM = [
+  // Evden Eve / Mobilya
   'evden eve', 'ev tasima', 'parca esya', 'ceyiz tasima', 'ofis tasima', 'asansorlu nakliyat',
+
+  // Grup / Kanal Reklamları & Linkler
   'whatsapp com', 'chat whatsapp', 't me', 'telegram me', 'gruba katil',
   'grup daveti', 'kanalini takip', 'tikla katil', 'linke tikla', 'wa me', 'joinchat',
+
+  // Dolandırıcılık / Kapora Uyarıları
   'parana sahip cik', 'guvenli odeme', 'odeme garantisi', 'kapora',
-  'satilik dukkan', 'devren dukkan', 'satilik araba', 'hasar kayitsiz', 'tramersiz', 'takasli', 'ekspertiz',
-  'sofor araniyor', 'sofor alimi', 'kaptan araniyor', 'maasli personel', 'usta araniyor', 'calisma arkadasi',
-  'qmove', 'kaliteli yuk', 'tasima programi', 'bugunun kaliteli', 'yapilacak sevkiyat', 'tasima gorevi',
-  'planlanan tasima', 'bugunku yuk', 'tasima isi', 'nakliye yuku', 'yuk havuzu', 'canli yuk', 'sevkiyat listesi', 'otomatik paylasim',
+
+  // Araç / Gayrimenkul Satışı
+  'satilik dukkan', 'devren dukkan', 'satilik araba',
+  'hasar kayitsiz', 'tramersiz', 'takasli', 'ekspertiz',
+
+  // Personel / İş Arayanlar
+  'sofor araniyor', 'sofor alimi', 'kaptan araniyor',
+  'maasli personel', 'usta araniyor', 'calisma arkadasi',
+  
+  // NAKLİYE BOTLARI VE SPAM YÜK HAVUZLARI
+  'qmove', 'kaliteli yuk', 'tasima programi', 'bugunun kaliteli',
+  'yapilacak sevkiyat', 'tasima gorevi', 'lojistik gorevi',
+  'planlanan tasima', 'bugunku yuk', 'tasima isi', 'nakliye yuku', 'yuk havuzu',
+  'canli yuk', 'sevkiyat listesi', 'otomatik paylasim', 
+  'bugun yukler', 'bugun ku yuk', 'bugun icin nakliye',
+  'odemeler pesin',
+
+  // Grup İçi Genel Sohbet
   'grup kurallari', 'hayirli cumalar', 'bereketli olsun', 'selamun aleykum', 'hayirli isler'
 ];
 
 const KARA_KELIMELER = KARA_KELIMELER_HAM.map(k => metniNormalizeEt(k));
 
+// Gelişmiş Regex Kalıpları
 const KARA_REGEX = [
-  /bugun.*yuk/i, /tasima.*isi/i, /yuk.*havuzu/i, /canli.*yuk/i,
-  /sevkiyat.*listesi/i, /otomatik.*paylasim/i, /evden.*eve/i,
-  /parca.*esya/i, /sofor.*aran/i, /kapora/i, /guvenli.*odeme/i
+  /bugun.*(yuk|lojistik|nakliye|sevkiyat|görev)/i,
+  /(tasima|lojistik).*gorevi/i,
+  /yuk.*havuzu/i, 
+  /canli.*yuk/i,
+  /sevkiyat.*listesi/i, 
+  /otomatik.*paylasim/i, 
+  /evden.*eve/i,
+  /parca.*esya/i, 
+  /sofor.*aran/i, 
+  /kapora/i, 
+  /guvenli.*odeme/i
 ];
 
 function spamMi(mesaj) {
@@ -225,7 +252,7 @@ function spamMi(mesaj) {
   const temizMesaj = metniNormalizeEt(mesaj);
   
   if (KARA_REGEX.some(regex => regex.test(temizMesaj))) {
-    console.log('🚮 Spam Engellendi (Kara Regex Kalıbı):', mesaj.substring(0, 35).replace(/\n/g, ' '));
+    console.log('🚮 Spam Engellendi (Kara Regex):', mesaj.substring(0, 35).replace(/\n/g, ' '));
     return true;
   }
 
@@ -242,13 +269,20 @@ function spamMi(mesaj) {
 
   const parsiyelSayisi = (temizMesaj.match(/parsiyel/g) || []).length;
   if (parsiyelSayisi >= 2) {
-    console.log('🚮 Spam Engellendi (Çoklu Parsiyel Listesi):', mesaj.substring(0, 35).replace(/\n/g, ' '));
+    console.log('🚮 Spam Engellendi (Çoklu Parsiyel):', mesaj.substring(0, 35).replace(/\n/g, ' '));
     return true;
   }
 
   const ayristirilan = gelismisMesajAyristir(mesaj);
   if (ayristirilan.toplam_lokasyon_sayisi >= 3) {
     console.log(`🚮 Spam Engellendi (Toplu Bot Liste - ${ayristirilan.toplam_lokasyon_sayisi} Lokasyon):`, mesaj.substring(0, 35).replace(/\n/g, ' '));
+    return true;
+  }
+
+  // --- ÇOKLU TONAJ KONTROLÜ ---
+  const tonajSayisi = (temizMesaj.match(/[0-9]+\s*ton/g) || []).length;
+  if (tonajSayisi >= 2) {
+    console.log(`🚮 Spam Engellendi (Çoklu Tonaj Listesi - ${tonajSayisi} adet):`, mesaj.substring(0, 35).replace(/\n/g, ' '));
     return true;
   }
 
@@ -317,7 +351,6 @@ function gelismisMesajAyristir(mesajMetni) {
 
   const tespitEdilenler = [];
 
-  // Derlenmiş Regex Nesneleri ile Hızlı Tarama
   PRECOMPILED_KISALTMALAR.forEach(item => {
     const m = mesajMetni.match(item.regex);
     if (m) tespitEdilenler.push({ il: item.il, ilce: item.ilce, index: m.index });
@@ -507,7 +540,6 @@ ${htmlTemizle(veriler.ham_mesaj)}
 
       const telegramGonderim = telegramaGonder(telegramMesaj);
 
-      // İki asenkron işlemi paralel bekle (Birbirini asla bloklamaz)
       await Promise.allSettled([supabaseKayit, telegramGonderim]);
     }
   });
