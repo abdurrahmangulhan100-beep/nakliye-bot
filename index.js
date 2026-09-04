@@ -193,7 +193,7 @@ const PRECOMPILED_ILLER = ILLER.map(il => ({
 
 const TEL_REGEX = /(?:(?:\+?90)|0)?\s*[5][0-9]{2}\s*[0-9]{3}\s*[0-9]{2}\s*[0-9]{2}/g;
 
-// --- 6. GELİŞMİŞ SPAM VE BOT FİLTRESİ (GÜNCELLENDİ) ---
+// --- 6. GELİŞMİŞ SPAM VE BOT FİLTRESİ (TAMİR EDİLDİ & GÜNCELLENDİ) ---
 const KARA_KELIMELER_HAM = [
   // Evden Eve / Mobilya
   'evden eve', 'ev tasima', 'parca esya', 'ceyiz tasima', 'ofis tasima', 'asansorlu nakliyat',
@@ -213,13 +213,13 @@ const KARA_KELIMELER_HAM = [
   'sofor araniyor', 'sofor alimi', 'kaptan araniyor',
   'maasli personel', 'usta araniyor', 'calisma arkadasi',
   
-  // NAKLİYE BOTLARI VE SPAM YÜK HAVUZLARI
-  'qmove', 'kaliteli yuk', 'tasima programi', 'bugunun kaliteli',
-  'yapilacak sevkiyat', 'tasima gorevi', 'lojistik gorevi',
-  'planlanan tasima', 'bugunku yuk', 'tasima isi', 'nakliye yuku', 'yuk havuzu',
+  // NAKLİYE BOTLARI VEYA OTOMATİK İLAN KALIPLARI
+  'bugun icin nakliye', 'bugunku yuk tasima', 'bugunku yuk',
+  'yuk tasima isi', 'lojistik gorevi', 'tasima gorevi', 'tasima isi',
+  'nakliye yuku', 'qmove', 'kaliteli yuk', 'tasima programi', 'bugunun kaliteli',
+  'yapilacak sevkiyat', 'planlanan tasima', 'yuk havuzu',
   'canli yuk', 'sevkiyat listesi', 'otomatik paylasim', 
-  'bugun yukler', 'bugun ku yuk', 'bugun icin nakliye',
-  'odemeler pesin',
+  'bugun yukler', 'bugun ku yuk', 'odemeler pesin',
 
   // Grup İçi Genel Sohbet
   'grup kurallari', 'hayirli cumalar', 'bereketli olsun', 'selamun aleykum', 'hayirli isler'
@@ -229,8 +229,10 @@ const KARA_KELIMELER = KARA_KELIMELER_HAM.map(k => metniNormalizeEt(k));
 
 // Gelişmiş Regex Kalıpları
 const KARA_REGEX = [
-  /bugun.*(yuk|lojistik|nakliye|sevkiyat|görev)/i,
-  /(tasima|lojistik).*gorevi/i,
+  /bugun.*(nakliye|yuk|lojistik|sevkiyat|gorev|gorevi)/i,
+  /(bugunku|bugun\s*icin)\s*(yuk|nakliye|lojistik|tasima)/i,
+  /yuk\s*tasima\s*isi/i,
+  /(tasima|lojistik)\s*gorevi/i,
   /yuk.*havuzu/i, 
   /canli.*yuk/i,
   /sevkiyat.*listesi/i, 
@@ -251,38 +253,43 @@ function spamMi(mesaj) {
 
   const temizMesaj = metniNormalizeEt(mesaj);
   
+  // 1. Kara Regex
   if (KARA_REGEX.some(regex => regex.test(temizMesaj))) {
     console.log('🚮 Spam Engellendi (Kara Regex):', mesaj.substring(0, 35).replace(/\n/g, ' '));
     return true;
   }
 
+  // 2. Kara Kelimeler
   const yakalanan = KARA_KELIMELER.find(kelime => temizMesaj.includes(kelime));
   if (yakalanan) {
     console.log(`🚮 Spam Engellendi [Kelime: "${yakalanan}"]:`, mesaj.substring(0, 35).replace(/\n/g, ' '));
     return true;
   }
 
+  // 3. Link
   if (temizMesaj.includes('http') || temizMesaj.includes('https') || temizMesaj.includes('channel') || temizMesaj.includes('t me') || temizMesaj.includes('wa me')) {
     console.log('🚮 Spam Engellendi (Link Var):', mesaj.substring(0, 30));
     return true;
   }
 
+  // 4. Parsiyel
   const parsiyelSayisi = (temizMesaj.match(/parsiyel/g) || []).length;
   if (parsiyelSayisi >= 2) {
     console.log('🚮 Spam Engellendi (Çoklu Parsiyel):', mesaj.substring(0, 35).replace(/\n/g, ' '));
     return true;
   }
 
+  // 5. Gelişmiş Lokasyon Yığılması Eşiği
   const ayristirilan = gelismisMesajAyristir(mesaj);
   if (ayristirilan.toplam_lokasyon_sayisi >= 3) {
     console.log(`🚮 Spam Engellendi (Toplu Bot Liste - ${ayristirilan.toplam_lokasyon_sayisi} Lokasyon):`, mesaj.substring(0, 35).replace(/\n/g, ' '));
     return true;
   }
 
-  // --- ÇOKLU TONAJ KONTROLÜ ---
-  const tonajSayisi = (temizMesaj.match(/[0-9]+\s*ton/g) || []).length;
-  if (tonajSayisi >= 2) {
-    console.log(`🚮 Spam Engellendi (Çoklu Tonaj Listesi - ${tonajSayisi} adet):`, mesaj.substring(0, 35).replace(/\n/g, ' '));
+  // 6. Çoklu Tonaj Kontrolü (Virgüllü değerler desteklendi)
+  const tonajMatches = temizMesaj.match(/[0-9]+(?:[\.,][0-9]+)?\s*(?:ton|kg|tonluk)/g) || [];
+  if (tonajMatches.length >= 2) {
+    console.log(`🚮 Spam Engellendi (Çoklu Tonaj Listesi - ${tonajMatches.length} adet):`, mesaj.substring(0, 35).replace(/\n/g, ' '));
     return true;
   }
 
@@ -313,7 +320,7 @@ function mukerrerIlanMi(mesajMetni) {
   return false;
 }
 
-// --- 8. ŞEHİR / İLÇE PARSER KÜTÜPHANESİ ---
+// --- 8. ŞEHİR / İLÇE PARSER KÜTÜPHANESİ (GÜNCELLENDİ) ---
 function htmlTemizle(text) {
   if (!text) return '';
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -353,39 +360,42 @@ function gelismisMesajAyristir(mesajMetni) {
 
   PRECOMPILED_KISALTMALAR.forEach(item => {
     const m = mesajMetni.match(item.regex);
-    if (m) tespitEdilenler.push({ il: item.il, ilce: item.ilce, index: m.index });
+    if (m) tespitEdilenler.push({ il: item.il, ilce: item.ilce, index: m.index, ham: m[0] });
   });
 
   PRECOMPILED_ILCE_IL.forEach(item => {
     const m = mesajMetni.match(item.regex);
-    if (m) tespitEdilenler.push({ il: item.il, ilce: item.ilce, index: m.index });
+    if (m) tespitEdilenler.push({ il: item.il, ilce: item.ilce, index: m.index, ham: m[0] });
   });
 
   PRECOMPILED_ILLER.forEach(item => {
     const m = mesajMetni.match(item.regex);
-    if (m) tespitEdilenler.push({ il: item.il, ilce: null, index: m.index });
+    if (m) tespitEdilenler.push({ il: item.il, ilce: null, index: m.index, ham: m[0] });
   });
 
+  // Metin içindeki sırasına göre diz
   tespitEdilenler.sort((a, b) => a.index - b.index);
 
-  const benzersiz = [];
+  // Çakışan/Aynı indexli aramaları temizle
+  const cakisilmayanlar = [];
   tespitEdilenler.forEach(item => {
-    if (!benzersiz.some(b => b.il === item.il && b.ilce === item.ilce)) {
-      benzersiz.push(item);
+    if (!cakisilmayanlar.some(c => Math.abs(c.index - item.index) < 3)) {
+      cakisilmayanlar.push(item);
     }
   });
 
   let kalkis_ili = null, kalkis_ilcesi = null;
   let varis_ili = null, varis_ilcesi = null;
 
-  if (benzersiz.length >= 2) {
-    kalkis_ili = benzersiz[0].il;
-    kalkis_ilcesi = benzersiz[0].ilce;
-    varis_ili = benzersiz[1].il;
-    varis_ilcesi = benzersiz[1].ilce;
-  } else if (benzersiz.length === 1) {
-    kalkis_ili = benzersiz[0].il;
-    kalkis_ilcesi = benzersiz[0].ilce;
+  // İlk iki geçerli lokasyonu rotaya al
+  if (cakisilmayanlar.length >= 2) {
+    kalkis_ili = cakisilmayanlar[0].il;
+    kalkis_ilcesi = cakisilmayanlar[0].ilce;
+    varis_ili = cakisilmayanlar[1].il;
+    varis_ilcesi = cakisilmayanlar[1].ilce;
+  } else if (cakisilmayanlar.length === 1) {
+    kalkis_ili = cakisilmayanlar[0].il;
+    kalkis_ilcesi = cakisilmayanlar[0].ilce;
   }
 
   return {
@@ -398,7 +408,7 @@ function gelismisMesajAyristir(mesajMetni) {
     varis_ilcesi,
     nereden: kalkis_ilcesi ? `${kalkis_ili} / ${kalkis_ilcesi}` : kalkis_ili,
     nereye: varis_ilcesi ? `${varis_ili} / ${varis_ilcesi}` : varis_ili,
-    toplam_lokasyon_sayisi: benzersiz.length
+    toplam_lokasyon_sayisi: cakisilmayanlar.length // Ham olarak kaç farklı il/ilçe kelimesi yakalandıysa onu verir
   };
 }
 
