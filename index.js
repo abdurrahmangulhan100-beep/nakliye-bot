@@ -168,7 +168,7 @@ const ILLER = [
   "Bilecik", "Bingöl", "Bitlis", "Bolu", "Burdur", "Bursa", "Çanakkale", "Çankırı", "Çorum", "Denizli",
   "Diyarbakır", "Edirne", "Elazığ", "Erzincan", "Erzurum", "Eskişehir", "Gaziantep", "Giresun", "Gümüşhane", "Hakkari",
   "Hatay", "Isparta", "Mersin", "İstanbul", "İzmir", "Kars", "Kastamonu", "Kayseri", "Kırklareli", "Kırşehir",
-  "Kocaeli", "Konya", "Kütahya", "Malatya", "Manisa", "Kahramanmaraş", "Mardin", "MUGla", "Muş", "Nevşehir",
+  "Kocaeli", "Konya", "Kütahya", "Malatya", "Manisa", "Kahramanmaraş", "Mardin", "Muğla", "Muş", "Nevşehir",
   "Niğde", "Ordu", "Rize", "Sakarya", "Samsun", "Siirt", "Sinop", "Sivas", "Tekirdağ", "Tokat",
   "Trabzon", "Tunceli", "Şanlıurfa", "Uşak", "Van", "Yozgat", "Zonguldak", "Aksaray", "Bayburt", "Karaman",
   "Kırıkkale", "Batman", "Şırnak", "Bartın", "Ardahan", "Iğdır", "Yalova", "Karabük", "Kilis", "Osmaniye", "Düzce"
@@ -193,7 +193,7 @@ const PRECOMPILED_ILLER = ILLER.map(il => ({
 
 const TEL_REGEX = /(?:(?:\+?90)|0)?\s*[5][0-9]{2}\s*[0-9]{3}\s*[0-9]{2}\s*[0-9]{2}/g;
 
-// --- 6. GELİŞMİŞ SPAM VE BOT FİLTRESİ (TAMİR EDİLDİ & GÜNCELLENDİ) ---
+// --- 6. GELİŞMİŞ SPAM VE BOT FİLTRESİ (GÜNCELLENDİ) ---
 const KARA_KELIMELER_HAM = [
   // Evden Eve / Mobilya
   'evden eve', 'ev tasima', 'parca esya', 'ceyiz tasima', 'ofis tasima', 'asansorlu nakliyat',
@@ -213,9 +213,10 @@ const KARA_KELIMELER_HAM = [
   'sofor araniyor', 'sofor alimi', 'kaptan araniyor',
   'maasli personel', 'usta araniyor', 'calisma arkadasi',
   
-  // NAKLİYE BOTLARI VEYA OTOMATİK İLAN KALIPLARI
-  'bugun icin nakliye', 'bugunku yuk tasima', 'bugunku yuk',
-  'yuk tasima isi', 'lojistik gorevi', 'tasima gorevi', 'tasima isi',
+  // KESİN YASAKLANAN OTOMATİK BOT VE YÜK TAŞIMA KALIPLARI
+  'bugunku yuk', 'bugunku lojistik gorevi', 'bugunku yuk tasima isi', 'bugunku yuk tasima',
+  'bugun lojistik gorevi', 'bugun yuk tasima isi', 'bugun yuk tasima', 'bugun yuk',
+  'lojistik gorevi', 'yuk tasima isi', 'tasima gorevi', 'tasima isi',
   'nakliye yuku', 'qmove', 'kaliteli yuk', 'tasima programi', 'bugunun kaliteli',
   'yapilacak sevkiyat', 'planlanan tasima', 'yuk havuzu',
   'canli yuk', 'sevkiyat listesi', 'otomatik paylasim', 
@@ -227,9 +228,10 @@ const KARA_KELIMELER_HAM = [
 
 const KARA_KELIMELER = KARA_KELIMELER_HAM.map(k => metniNormalizeEt(k));
 
-// Gelişmiş Regex Kalıpları
+// Kesin Engelleyici Regex Kalıpları
 const KARA_REGEX = [
   /bugun.*(nakliye|yuk|lojistik|sevkiyat|gorev|gorevi)/i,
+  /bugunku.*(nakliye|yuk|lojistik|sevkiyat|gorev|gorevi)/i,
   /(bugunku|bugun\s*icin)\s*(yuk|nakliye|lojistik|tasima)/i,
   /yuk\s*tasima\s*isi/i,
   /(tasima|lojistik)\s*gorevi/i,
@@ -253,40 +255,40 @@ function spamMi(mesaj) {
 
   const temizMesaj = metniNormalizeEt(mesaj);
   
-  // 1. Kara Regex
+  // 1. Kara Regex Taraması
   if (KARA_REGEX.some(regex => regex.test(temizMesaj))) {
-    console.log('🚮 Spam Engellendi (Kara Regex):', mesaj.substring(0, 35).replace(/\n/g, ' '));
+    console.log('🚮 Spam Engellendi (Bot Kalıbı/Kara Regex):', mesaj.substring(0, 45).replace(/\n/g, ' '));
     return true;
   }
 
-  // 2. Kara Kelimeler
+  // 2. Kara Kelimeler Taraması
   const yakalanan = KARA_KELIMELER.find(kelime => temizMesaj.includes(kelime));
   if (yakalanan) {
-    console.log(`🚮 Spam Engellendi [Kelime: "${yakalanan}"]:`, mesaj.substring(0, 35).replace(/\n/g, ' '));
+    console.log(`🚮 Spam Engellendi [Yasaklı İfade: "${yakalanan}"]:`, mesaj.substring(0, 45).replace(/\n/g, ' '));
     return true;
   }
 
-  // 3. Link
+  // 3. Reklam / Link Taraması
   if (temizMesaj.includes('http') || temizMesaj.includes('https') || temizMesaj.includes('channel') || temizMesaj.includes('t me') || temizMesaj.includes('wa me')) {
-    console.log('🚮 Spam Engellendi (Link Var):', mesaj.substring(0, 30));
+    console.log('🚮 Spam Engellendi (Link İÇeriyor):', mesaj.substring(0, 30));
     return true;
   }
 
-  // 4. Parsiyel
+  // 4. Parsiyel Yığılması Kontrolü
   const parsiyelSayisi = (temizMesaj.match(/parsiyel/g) || []).length;
   if (parsiyelSayisi >= 2) {
     console.log('🚮 Spam Engellendi (Çoklu Parsiyel):', mesaj.substring(0, 35).replace(/\n/g, ' '));
     return true;
   }
 
-  // 5. Gelişmiş Lokasyon Yığılması Eşiği
+  // 5. Lokasyon Yığılması Kontrolü (Toplu İlan Botlarını Süzme)
   const ayristirilan = gelismisMesajAyristir(mesaj);
   if (ayristirilan.toplam_lokasyon_sayisi >= 3) {
     console.log(`🚮 Spam Engellendi (Toplu Bot Liste - ${ayristirilan.toplam_lokasyon_sayisi} Lokasyon):`, mesaj.substring(0, 35).replace(/\n/g, ' '));
     return true;
   }
 
-  // 6. Çoklu Tonaj Kontrolü (Virgüllü değerler desteklendi)
+  // 6. Çoklu Tonaj Kontrolü
   const tonajMatches = temizMesaj.match(/[0-9]+(?:[\.,][0-9]+)?\s*(?:ton|kg|tonluk)/g) || [];
   if (tonajMatches.length >= 2) {
     console.log(`🚮 Spam Engellendi (Çoklu Tonaj Listesi - ${tonajMatches.length} adet):`, mesaj.substring(0, 35).replace(/\n/g, ' '));
@@ -320,7 +322,7 @@ function mukerrerIlanMi(mesajMetni) {
   return false;
 }
 
-// --- 8. ŞEHİR / İLÇE PARSER KÜTÜPHANESİ (GÜNCELLENDİ) ---
+// --- 8. ŞEHİR / İLÇE PARSER KÜTÜPHANESİ ---
 function htmlTemizle(text) {
   if (!text) return '';
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -387,7 +389,6 @@ function gelismisMesajAyristir(mesajMetni) {
   let kalkis_ili = null, kalkis_ilcesi = null;
   let varis_ili = null, varis_ilcesi = null;
 
-  // İlk iki geçerli lokasyonu rotaya al
   if (cakisilmayanlar.length >= 2) {
     kalkis_ili = cakisilmayanlar[0].il;
     kalkis_ilcesi = cakisilmayanlar[0].ilce;
@@ -408,7 +409,7 @@ function gelismisMesajAyristir(mesajMetni) {
     varis_ilcesi,
     nereden: kalkis_ilcesi ? `${kalkis_ili} / ${kalkis_ilcesi}` : kalkis_ili,
     nereye: varis_ilcesi ? `${varis_ili} / ${varis_ilcesi}` : varis_ili,
-    toplam_lokasyon_sayisi: cakisilmayanlar.length // Ham olarak kaç farklı il/ilçe kelimesi yakalandıysa onu verir
+    toplam_lokasyon_sayisi: cakisilmayanlar.length
   };
 }
 
@@ -430,11 +431,9 @@ async function eskiIlanlariTemizle() {
 
 // --- 10. BOTU BAŞLAT ---
 async function botuBaslat() {
-  // DB Temizliği (Her 1 saatte bir)
   eskiIlanlariTemizle();
   setInterval(eskiIlanlariTemizle, 60 * 60 * 1000);
 
-  // RAM Temizliği (Her 1 saatte bir eski hash'leri hafızadan siler)
   setInterval(() => {
     const simdi = Date.now();
     for (const [hash, zam] of mesajEngelleri.entries()) {
