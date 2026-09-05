@@ -222,8 +222,17 @@ const KARA_KELIMELER_HAM = [
   'canli yuk', 'sevkiyat listesi', 'otomatik paylasim', 
   'bugun yukler', 'bugun ku yuk', 'odemeler pesin',
 
-  // Grup İçi Genel Sohbet
-  'grup kurallari', 'hayirli cumalar', 'bereketli olsun', 'selamun aleykum', 'hayirli isler'
+  // İş Dışı Soru ve Muhabbet Kalıpları
+  'kac para', 'fiyat nedir', 'kaca gidersin', 'ne kadar', 'kac km',
+  'var mi', 'varmidir', 'varmis', 'bilgi alabilir miyim', 'bilgisi olan',
+  'yardimci olabilir', 'hayirli isler', 'iyi calismalar', 'gunaydin',
+  'iyi aksamlar', 'saat kac', 'arayan var mi', 'kim var', 'yol durumu',
+  'radara dikkat', 'ceza yedik', 'kantar acik mi', 'mazot fiyat',
+  'grup kurallari', 'hayirli cumalar', 'bereketli olsun', 'selamun aleykum',
+
+  // Alakasız Hizmet / Reklam İfadeleri
+  'kiralik dukkan', 'satilik kamyon', 'lastik satilik', 'faturali',
+  'fatura kesilir', 'muayene', 'yedek parca', 'sanayi', 'tamirci'
 ];
 
 const KARA_KELIMELER = KARA_KELIMELER_HAM.map(k => metniNormalizeEt(k));
@@ -243,7 +252,18 @@ const KARA_REGEX = [
   /parca.*esya/i, 
   /sofor.*aran/i, 
   /kapora/i, 
-  /guvenli.*odeme/i
+  /guvenli.*odeme/i,
+  /\b(var\s*mi|varmidir|varmis)\b/i,
+  /\b(kac\s*tl|kac\s*para|ne\s*kadar)\b/i,
+  /\b(bilgi\s*alabilir|bilgisi\s*olan)\b/i,
+  /\b(kantar|radar|ceza)\b/i
+];
+
+// Gerçek bir nakliye ilanında geçmesi muhtemel anahtar kelimeler
+const IS_BELIRTECLERI = [
+  'yuk', 'ton', 'kamyon', 'tir', 'dorse', 'kirmizi', 'kapak', 'tenteli', 
+  'damper', 'parsiyel', 'parca', 'palet', 'm3', 'saat', 'hazir', 'yukleme', 
+  'bos', 'arac', 'araniyor', 'lazim', 'acil', 'alinacak', 'bosta'
 ];
 
 function spamMi(mesaj) {
@@ -292,6 +312,13 @@ function spamMi(mesaj) {
   const tonajMatches = temizMesaj.match(/[0-9]+(?:[\.,][0-9]+)?\s*(?:ton|kg|tonluk)/g) || [];
   if (tonajMatches.length >= 2) {
     console.log(`🚮 Spam Engellendi (Çoklu Tonaj Listesi - ${tonajMatches.length} adet):`, mesaj.substring(0, 35).replace(/\n/g, ' '));
+    return true;
+  }
+
+  // 7. Pozitif İş Kontrolü: İlan metninde iş belirtisi kelimelerden EN AZ BİRİ geçiyor mu?
+  const isIceriyorMu = IS_BELIRTECLERI.some(kelime => temizMesaj.includes(kelime));
+  if (!isIceriyorMu) {
+    console.log('🚮 Spam Engellendi (İş İlanı Belirteci/Anahtar Kelime Bulunamadı):', mesaj.substring(0, 45).replace(/\n/g, ' '));
     return true;
   }
 
@@ -538,6 +565,12 @@ async function botuBaslat() {
 
       // 2. İlan Verilerini Ayrıştır
       const veriler = gelismisMesajAyristir(mesajMetni);
+
+      // ❌ LOKASYON KONTROLÜ: Nereden bilgisi bile tespit edilemediyse iş ilanı değildir
+      if (!veriler.kalkis_ili && !veriler.kalkis_ilcesi) {
+        console.log('🚮 Filtrelendi (Lokasyon/Şehir İçermeyen İş Dışı Mesaj):', mesajMetni.substring(0, 40).replace(/\n/g, ' '));
+        continue;
+      }
 
       // 3. Akıllı Mükerrer Kontrolü (Aynı ilan tekrar geldiyse atlar)
       if (mukerrerIlanMi(mesajMetni, veriler.telefon, veriler.nereden, veriler.nereye)) {
