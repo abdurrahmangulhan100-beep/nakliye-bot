@@ -193,7 +193,7 @@ const PRECOMPILED_ILLER = ILLER.map(il => ({
 
 const TEL_REGEX = /(?:(?:\+?90)|0)?\s*[5][0-9]{2}\s*[0-9]{3}\s*[0-9]{2}\s*[0-9]{2}/g;
 
-// --- 6. GELİŞMİŞ SPAM VE BOT FİLTRESİ (GÜNCELLENDİ) ---
+// --- 6. GELİŞMİŞ SPAM VE OTOMATİK BOT İLAN FİLTRESİ ---
 const KARA_KELIMELER_HAM = [
   // Evden Eve / Mobilya
   'evden eve', 'ev tasima', 'parca esya', 'ceyiz tasima', 'ofis tasima', 'asansorlu nakliyat',
@@ -270,7 +270,7 @@ function spamMi(mesaj) {
 
   // 3. Reklam / Link Taraması
   if (temizMesaj.includes('http') || temizMesaj.includes('https') || temizMesaj.includes('channel') || temizMesaj.includes('t me') || temizMesaj.includes('wa me')) {
-    console.log('🚮 Spam Engellendi (Link İÇeriyor):', mesaj.substring(0, 30));
+    console.log('🚮 Spam Engellendi (Link İçeriyor):', mesaj.substring(0, 30));
     return true;
   }
 
@@ -281,7 +281,7 @@ function spamMi(mesaj) {
     return true;
   }
 
-  // 5. Lokasyon Yığılması Kontrolü (Toplu İlan Botlarını Süzme)
+  // 5. Lokasyon Yığılması Kontrolü (Toplu Bot İlanları Süzme)
   const ayristirilan = gelismisMesajAyristir(mesaj);
   if (ayristirilan.toplam_lokasyon_sayisi >= 3) {
     console.log(`🚮 Spam Engellendi (Toplu Bot Liste - ${ayristirilan.toplam_lokasyon_sayisi} Lokasyon):`, mesaj.substring(0, 35).replace(/\n/g, ' '));
@@ -298,27 +298,54 @@ function spamMi(mesaj) {
   return false;
 }
 
-// --- 7. PARMAK İZİ BAZLI MÜKERRER İLAN ENGELLEME ---
+// --- 7. GELİŞMİŞ AKILLI MÜKERRER İLAN ENGELLEME ---
 const mesajEngelleri = new Map();
-const MESAJ_ENGEL_SURESI_MS = 2 * 60 * 60 * 1000; // 2 Saat
+const MESAJ_ENGEL_SURESI_MS = 3 * 60 * 60 * 1000; // 3 Saat boyunca tekrar atan ilanları engelle
 
-function mukerrerIlanMi(mesajMetni) {
+function mukerrerIlanMi(mesajMetni, telefon, nereden, nereye) {
   if (!mesajMetni) return true;
   const simdi = Date.now();
-  
-  const parmakIzi = metniNormalizeEt(mesajMetni).replace(/[^a-z]/g, '');
-  if (parmakIzi.length < 8) return true;
 
-  const mesajHash = crypto.createHash('md5').update(parmakIzi).digest('hex');
+  // 1. Metinden Saatleri, Emojileri, Noktalama İşaretlerini ve Değişken Karakterleri Temizle
+  const ozMetin = metniNormalizeEt(mesajMetni)
+    .replace(/\b(?:0[0-9]|1[0-9]|2[0-3])[:.][0-5][0-9]\b/g, '') // "14:30" gibi dinamik saatleri siler
+    .replace(/[^a-z0-9]/g, ''); // Sadece temel harf ve rakamları tutar
 
-  if (mesajEngelleri.has(mesajHash)) {
-    const kayitZamani = mesajEngelleri.get(mesajHash);
+  if (ozMetin.length < 8) return true;
+
+  // 2. Öz Metin Hash'i
+  const metinHash = crypto.createHash('md5').update(ozMetin).digest('hex');
+
+  // 3. Telefon + Rota Hash'i (Telefon ve Rota aynıysa mesaj değişse bile yakalar)
+  let telefonRotaHash = null;
+  if (telefon && (nereden || nereye)) {
+    const telTemiz = telefon.replace(/[^0-9]/g, '');
+    const rotaMetin = `${telTemiz}_${nereden || ''}_${nereye || ''}`;
+    telefonRotaHash = crypto.createHash('md5').update(rotaMetin).digest('hex');
+  }
+
+  // Kontrol A: Aynı Metin İçeriği Geldi mi?
+  if (mesajEngelleri.has(metinHash)) {
+    const kayitZamani = mesajEngelleri.get(metinHash);
     if (simdi - kayitZamani < MESAJ_ENGEL_SURESI_MS) {
       return true;
     }
   }
 
-  mesajEngelleri.set(mesajHash, simdi);
+  // Kontrol B: Aynı Numaradan Aynı Rotaya Tekrar İlan Geldi mi?
+  if (telefonRotaHash && mesajEngelleri.has(telefonRotaHash)) {
+    const kayitZamani = mesajEngelleri.get(telefonRotaHash);
+    if (simdi - kayitZamani < MESAJ_ENGEL_SURESI_MS) {
+      return true;
+    }
+  }
+
+  // Yeni İlanı Hafızaya Kaydet
+  mesajEngelleri.set(metinHash, simdi);
+  if (telefonRotaHash) {
+    mesajEngelleri.set(telefonRotaHash, simdi);
+  }
+
   return false;
 }
 
@@ -434,6 +461,7 @@ async function botuBaslat() {
   eskiIlanlariTemizle();
   setInterval(eskiIlanlariTemizle, 60 * 60 * 1000);
 
+  // RAM Temizliği (Eski Hash'leri 1 saatte bir hafızadan temizler)
   setInterval(() => {
     const simdi = Date.now();
     for (const [hash, zam] of mesajEngelleri.entries()) {
@@ -496,7 +524,7 @@ async function botuBaslat() {
     }
   });
 
-  // BATCH MESAJ İŞLEME VE PARALEL I/O
+  // CANLI MESAJ DİNLENMESİ
   sock.ev.on('messages.upsert', async (m) => {
     if (!m.messages || m.messages.length === 0) return;
 
@@ -505,14 +533,17 @@ async function botuBaslat() {
 
       const mesajMetni = mesajMetniniCikar(msg.message);
 
+      // 1. Spam & Otomatik Bot İlanı Kontrolü
       if (spamMi(mesajMetni)) continue;
 
-      if (mukerrerIlanMi(mesajMetni)) {
-        console.log('⏳ Mükerrer/Tekrarlayan İlan atlandı (RAM Seviyesinde Engellendi).');
+      // 2. İlan Verilerini Ayrıştır
+      const veriler = gelismisMesajAyristir(mesajMetni);
+
+      // 3. Akıllı Mükerrer Kontrolü (Aynı ilan tekrar geldiyse atlar)
+      if (mukerrerIlanMi(mesajMetni, veriler.telefon, veriler.nereden, veriler.nereye)) {
+        console.log('⏳ Mükerrer/Tekrarlayan İlan atlandı (RAM & Rota Seviyesinde Engellendi).');
         continue;
       }
-
-      const veriler = gelismisMesajAyristir(mesajMetni);
 
       console.log('📩 Yeni İlan Parse Edildi: ' + mesajMetni.substring(0, 40).replace(/\n/g, ' ') + '...');
 
@@ -529,7 +560,7 @@ ${htmlTemizle(veriler.ham_mesaj)}
 ───────────────
 📲 <i>Nakliye Cepte canlı yük akışı</i>`;
 
-      // SUPABASE VE TELEGRAM İŞLEMLERİNİ PARALEL BAŞLAT
+      // SUPABASE VE TELEGRAM İŞLEMLERİNİ PARALEL YÜRÜT
       const supabaseKayit = supabase
         .from('ilanlar')
         .insert([
