@@ -1,6 +1,6 @@
 // --- 0. NODE.JS ÇÖKME KORUMASI (ANTI-CRASH) ---
 process.on('uncaughtException', (err) => {
-  console.error('🔥 Beklenmeyen Kritik Hata (Uygulama çökmekten kurtarıldı):', err);
+  console.error('🔥 Beklenmeyen Kritik Hata:', err);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
@@ -195,6 +195,19 @@ const TEL_REGEX = /(?:(?:\+?90)|0)?\s*[5][0-9]{2}\s*[0-9]{3}\s*[0-9]{2}\s*[0-9]{
 
 // --- 6. GELİŞMİŞ SPAM VE OTOMATİK BOT İLAN FİLTRESİ ---
 const KARA_KELIMELER_HAM = [
+  // ÇÖP VE OTOMATİK BOT İLANLARI (X YASAKLI BÖLGE)
+  'qmove', 'q move', 'bugunku nakliye isi', 'bugun ku nakliye isi', 'bugunku nakliye',
+  'bugunku yuk', 'bugunku lojistik gorevi', 'bugunku yuk tasima isi', 'bugunku yuk tasima',
+  'bugun lojistik gorevi', 'bugun yuk tasima isi', 'bugun yuk tasima', 'bugun yuk',
+  'lojistik gorevi', 'yuk tasima isi', 'tasima gorevi', 'tasima isi',
+  'nakliye yuku', 'kaliteli yuk', 'tasima programi', 'bugunun kaliteli',
+  'yapilacak sevkiyat', 'planlanan tasima', 'yuk havuzu',
+  'canli yuk', 'sevkiyat listesi', 'otomatik paylasim', 
+  'bugun yukler', 'bugun ku yuk', 'odemeler pesin',
+  'bugunku gorev', 'bugun gorev', 'gunun yuku', 'gunun gorevi', 'gunluk yuk listesi',
+  'yuk listesi', 'guncel yuk', 'guncel sevkiyat', 'sevkiyat gorevi', 'nakliye gorevi',
+  'transfer gorevi', 'lojistik listesi', 'tasima listesi', 'rota listesi',
+
   // Evden Eve / Mobilya
   'evden eve', 'ev tasima', 'parca esya', 'ceyiz tasima', 'ofis tasima', 'asansorlu nakliyat',
 
@@ -212,18 +225,6 @@ const KARA_KELIMELER_HAM = [
   // Personel / İş Arayanlar
   'sofor araniyor', 'sofor alimi', 'kaptan araniyor',
   'maasli personel', 'usta araniyor', 'calisma arkadasi',
-  
-  // KESİN YASAKLANAN OTOMATİK BOT VE YÜK TAŞIMA KALIPLARI
-  'bugunku yuk', 'bugunku lojistik gorevi', 'bugunku yuk tasima isi', 'bugunku yuk tasima',
-  'bugun lojistik gorevi', 'bugun yuk tasima isi', 'bugun yuk tasima', 'bugun yuk',
-  'lojistik gorevi', 'yuk tasima isi', 'tasima gorevi', 'tasima isi',
-  'nakliye yuku', 'qmove', 'kaliteli yuk', 'tasima programi', 'bugunun kaliteli',
-  'yapilacak sevkiyat', 'planlanan tasima', 'yuk havuzu',
-  'canli yuk', 'sevkiyat listesi', 'otomatik paylasim', 
-  'bugun yukler', 'bugun ku yuk', 'odemeler pesin',
-  'bugunku gorev', 'bugun gorev', 'gunun yuku', 'gunun gorevi', 'gunluk yuk listesi',
-  'yuk listesi', 'guncel yuk', 'guncel sevkiyat', 'sevkiyat gorevi', 'nakliye gorevi',
-  'transfer gorevi', 'lojistik listesi', 'tasima listesi', 'rota listesi',
 
   // İş Dışı Soru ve Muhabbet Kalıpları
   'kac para', 'fiyat nedir', 'kaca gidersin', 'ne kadar', 'kac km',
@@ -242,12 +243,11 @@ const KARA_KELIMELER = KARA_KELIMELER_HAM.map(k => metniNormalizeEt(k));
 
 // Kesin Engelleyici Regex Kalıpları
 const KARA_REGEX = [
-  // "Bugünkü/Bugün" hemen ardından iş/görev ifadesi gelen bot başlıkları
-  // (metin normalize edildiği için ü->u, ş->s, ğ->g dönüşür; başlangıca yakın 0-5 kelime toleransı bırakılır)
-  /^\s*bugun(ku)?\b(?:\s+\S+){0,5}?\s*(yuk\s*tasima\s*isi|lojistik\s*gorevi|nakliye\s*gorevi|sevkiyat\s*gorevi|tasima\s*gorevi|gunun\s*yuku|gunun\s*gorevi)/i,
-  /\bbugun(ku)?\b(?:\s+\S+){0,3}?\s*(yuk|lojistik|nakliye|tasima|gorev|gorevi|sevkiyat)/i,
-  /(bugunku|bugun\s*icin)\s*(yuk|nakliye|lojistik|tasima)/i,
-  /yuk\s*tasima\s*isi/i,
+  /\bqmove\b/i,
+  /bugun.*nakliye/i,
+  /bugun.*yuk/i,
+  /bugun.*gorev/i,
+  /yuk.*tasima.*isi/i,
   /(tasima|lojistik|nakliye|sevkiyat|transfer)\s*gorevi/i,
   /(yuk|sevkiyat|rota|tasima|lojistik)\s*listesi/i,
   /yuk.*havuzu/i, 
@@ -273,8 +273,6 @@ const IS_BELIRTECLERI = [
 ];
 
 // --- 6.1 ARAÇ TİPİ YIĞILMASI TESPİT KÜTÜPHANESİ ---
-// Botlar tek mesajda birden fazla farklı araç tipini art arda sıralar (Frigo Damper Tenteli Kırkayak Tır 10 Teker gibi).
-// Gerçek bir nakliyeci genelde tek bir araç tipi ister; 3'ten fazla FARKLI araç tipi aynı mesajda geçiyorsa bu bot spam'idir.
 const ARAC_TIPLERI_HAM = [
   'tir', 'kamyon', 'kamyonet', 'kirkayak', 'damper', 'dorse', 'tenteli',
   'frigo', 'frigofirik', 'panelvan', 'lowbed', 'kirkbeygir', '10 teker',
@@ -286,7 +284,6 @@ const PRECOMPILED_ARAC_TIPLERI = ARAC_TIPLERI_HAM.map(k => ({
   regex: new RegExp(`\\b${metniNormalizeEt(k).replace(/\s+/g, '\\s*')}\\b`, 'i')
 }));
 
-// Verilen (zaten normalize edilmiş) metinde kaç FARKLI araç tipi geçtiğini sayar
 function farkliAracTipiSayisi(temizMesaj) {
   let sayac = 0;
   PRECOMPILED_ARAC_TIPLERI.forEach(item => {
@@ -303,8 +300,8 @@ function spamMi(mesaj) {
   if (harfSayisi < 5) return true; 
 
   const temizMesaj = metniNormalizeEt(mesaj);
-  
-  // 1. Kara Regex Taraması
+
+  // 1. Kara Regex Taraması (Qmove, Bugünkü nakliye işi vb.)
   if (KARA_REGEX.some(regex => regex.test(temizMesaj))) {
     console.log('🚮 Spam Engellendi (Bot Kalıbı/Kara Regex):', mesaj.substring(0, 45).replace(/\n/g, ' '));
     return true;
@@ -330,41 +327,21 @@ function spamMi(mesaj) {
     return true;
   }
 
-  // 5. Lokasyon Yığılması Kontrolü (Toplu Bot İlanları Süzme)
-  // Metin içinde art arda / toplamda 3 veya daha fazla farklı şehir/ilçe geçiyorsa
-  // bu tek bir gerçek rota değil, botun ürettiği "tüm Türkiye'yi rota yapan" toplu listedir.
   const ayristirilan = gelismisMesajAyristir(mesaj);
+
+  // 5. Lokasyon Yığılması Kontrolü
   if (ayristirilan.toplam_lokasyon_sayisi >= 3) {
     console.log(`🚮 Spam Engellendi (Toplu Bot Liste - ${ayristirilan.toplam_lokasyon_sayisi} Lokasyon):`, mesaj.substring(0, 35).replace(/\n/g, ' '));
     return true;
   }
 
   // 6. Araç Tipi Yığılması Kontrolü
-  // Bir mesajda 3'ten fazla FARKLI araç tipi (Frigo, Damper, Tenteli, Kırkayak, Tır, 10 Teker vb.)
-  // aynı anda geçiyorsa gerçek bir nakliyeci ilanı değil, botun ürettiği anahtar kelime spam'idir.
   if (ayristirilan.toplam_arac_tipi_sayisi > 3) {
     console.log(`🚮 Spam Engellendi (Araç Tipi Yığılması - ${ayristirilan.toplam_arac_tipi_sayisi} Farklı Araç Tipi):`, mesaj.substring(0, 35).replace(/\n/g, ' '));
     return true;
   }
 
-  // 7. Çoklu Tonaj Kontrolü
-  const tonajMatches = temizMesaj.match(/[0-9]+(?:[\.,][0-9]+)?\s*(?:ton|kg|tonluk)/g) || [];
-  if (tonajMatches.length >= 2) {
-    console.log(`🚮 Spam Engellendi (Çoklu Tonaj Listesi - ${tonajMatches.length} adet):`, mesaj.substring(0, 35).replace(/\n/g, ' '));
-    return true;
-  }
-
-  // 8. Anlamlı Cümle / Kelime Yığını Kontrolü
-  // Gerçek bir ilan; net bir rota (kalkış-varış), tek bir araç tipi ve/veya tonaj/miktar bilgisi
-  // içeren sade bir cümledir. Eğer mesajda HEM lokasyon sayısı 2'yi geçiyor HEM de araç tipi
-  // sayısı 2'yi geçiyorsa (yani hem çoklu şehir hem çoklu araç aynı anda var), bu da bir
-  // kelime yığını / toplu bot listesi belirtisidir.
-  if (ayristirilan.toplam_lokasyon_sayisi >= 2 && ayristirilan.toplam_arac_tipi_sayisi >= 3) {
-    console.log('🚮 Spam Engellendi (Anlamsız Kelime Yığını - Çoklu Şehir + Çoklu Araç Tipi):', mesaj.substring(0, 45).replace(/\n/g, ' '));
-    return true;
-  }
-
-  // 9. Pozitif İş Kontrolü: İlan metninde iş belirtisi kelimelerden EN AZ BİRİ geçiyor mu?
+  // 7. Pozitif İş Kontrolü
   const isIceriyorMu = IS_BELIRTECLERI.some(kelime => temizMesaj.includes(kelime));
   if (!isIceriyorMu) {
     console.log('🚮 Spam Engellendi (İş İlanı Belirteci/Anahtar Kelime Bulunamadı):', mesaj.substring(0, 45).replace(/\n/g, ' '));
@@ -376,51 +353,40 @@ function spamMi(mesaj) {
 
 // --- 7. GELİŞMİŞ AKILLI MÜKERRER İLAN ENGELLEME ---
 const mesajEngelleri = new Map();
-const MESAJ_ENGEL_SURESI_MS = 3 * 60 * 60 * 1000; // 3 Saat boyunca tekrar atan ilanları engelle
+const MESAJ_ENGEL_SURESI_MS = 6 * 60 * 60 * 1000; // 6 Saat Mükerrer Filtresi
 
 function mukerrerIlanMi(mesajMetni, telefon, nereden, nereye) {
   if (!mesajMetni) return true;
   const simdi = Date.now();
 
-  // 1. Metinden Saatleri, Emojileri, Noktalama İşaretlerini ve Değişken Karakterleri Temizle
+  // Saat, emoji, semboller silinip sadece saf kelimeler alınır
   const ozMetin = metniNormalizeEt(mesajMetni)
-    .replace(/\b(?:0[0-9]|1[0-9]|2[0-3])[:.][0-5][0-9]\b/g, '') // "14:30" gibi dinamik saatleri siler
-    .replace(/[^a-z0-9]/g, ''); // Sadece temel harf ve rakamları tutar
+    .replace(/\b(?:0[0-9]|1[0-9]|2[0-3])[:.][0-5][0-9]\b/g, '')
+    .replace(/[^a-z0-9]/g, '');
 
   if (ozMetin.length < 8) return true;
 
-  // 2. Öz Metin Hash'i
   const metinHash = crypto.createHash('md5').update(ozMetin).digest('hex');
 
-  // 3. Telefon + Rota Hash'i (Telefon ve Rota aynıysa mesaj değişse bile yakalar)
   let telefonRotaHash = null;
-  if (telefon && (nereden || nereye)) {
+  if (telefon) {
     const telTemiz = telefon.replace(/[^0-9]/g, '');
     const rotaMetin = `${telTemiz}_${nereden || ''}_${nereye || ''}`;
     telefonRotaHash = crypto.createHash('md5').update(rotaMetin).digest('hex');
   }
 
-  // Kontrol A: Aynı Metin İçeriği Geldi mi?
   if (mesajEngelleri.has(metinHash)) {
     const kayitZamani = mesajEngelleri.get(metinHash);
-    if (simdi - kayitZamani < MESAJ_ENGEL_SURESI_MS) {
-      return true;
-    }
+    if (simdi - kayitZamani < MESAJ_ENGEL_SURESI_MS) return true;
   }
 
-  // Kontrol B: Aynı Numaradan Aynı Rotaya Tekrar İlan Geldi mi?
   if (telefonRotaHash && mesajEngelleri.has(telefonRotaHash)) {
     const kayitZamani = mesajEngelleri.get(telefonRotaHash);
-    if (simdi - kayitZamani < MESAJ_ENGEL_SURESI_MS) {
-      return true;
-    }
+    if (simdi - kayitZamani < MESAJ_ENGEL_SURESI_MS) return true;
   }
 
-  // Yeni İlanı Hafızaya Kaydet
   mesajEngelleri.set(metinHash, simdi);
-  if (telefonRotaHash) {
-    mesajEngelleri.set(telefonRotaHash, simdi);
-  }
+  if (telefonRotaHash) mesajEngelleri.set(telefonRotaHash, simdi);
 
   return false;
 }
@@ -461,9 +427,7 @@ function gelismisMesajAyristir(mesajMetni) {
   else if (alt.includes('dorse')) aracTipi = 'Dorse';
   else if (alt.includes('panelvan')) aracTipi = 'Panelvan';
 
-  // Mesajda kaç FARKLI araç tipinin bir arada geçtiğini say (bot yığılması tespiti için)
   const aracTipiSayisi = farkliAracTipiSayisi(alt);
-
   const tespitEdilenler = [];
 
   PRECOMPILED_KISALTMALAR.forEach(item => {
@@ -481,10 +445,8 @@ function gelismisMesajAyristir(mesajMetni) {
     if (m) tespitEdilenler.push({ il: item.il, ilce: null, index: m.index, ham: m[0] });
   });
 
-  // Metin içindeki sırasına göre diz
   tespitEdilenler.sort((a, b) => a.index - b.index);
 
-  // Çakışan/Aynı indexli aramaları temizle
   const cakisilmayanlar = [];
   tespitEdilenler.forEach(item => {
     if (!cakisilmayanlar.some(c => Math.abs(c.index - item.index) < 3)) {
@@ -520,7 +482,7 @@ function gelismisMesajAyristir(mesajMetni) {
   };
 }
 
-// --- 9. OTOMATİK VERİTABANI VE RAM TEMİZLEYİCİ ---
+// --- 9. OTOMATİK VERİTABANI TEMİZLEYİCİ ---
 async function eskiIlanlariTemizle() {
   try {
     const onSaatOnce = new Date(Date.now() - 10 * 60 * 60 * 1000).toISOString();
@@ -530,9 +492,9 @@ async function eskiIlanlariTemizle() {
       .lt('created_at', onSaatOnce);
 
     if (error) console.error('⚠️ Otomatik silme hatası:', error.message);
-    else console.log(`🧹 Otomatik Temizlik: 10 saatten eski ilanlar silindi. (${count || 0} kayıt temizlendi)`);
+    else console.log(`🧹 Otomatik Temizlik: 10 saatten eski ilanlar silindi. (${count || 0} kayıt)`);
   } catch (err) {
-    console.error('⚠️ Temizlik sırasında beklenmeyen hata:', err.message);
+    console.error('⚠️ Temizlik hatası:', err.message);
   }
 }
 
@@ -541,7 +503,6 @@ async function botuBaslat() {
   eskiIlanlariTemizle();
   setInterval(eskiIlanlariTemizle, 60 * 60 * 1000);
 
-  // RAM Temizliği (Eski Hash'leri 1 saatte bir hafızadan temizler)
   setInterval(() => {
     const simdi = Date.now();
     for (const [hash, zam] of mesajEngelleri.entries()) {
@@ -619,15 +580,15 @@ async function botuBaslat() {
       // 2. İlan Verilerini Ayrıştır
       const veriler = gelismisMesajAyristir(mesajMetni);
 
-      // ❌ LOKASYON KONTROLÜ: Nereden bilgisi bile tespit edilemediyse iş ilanı değildir
+      // Lokasyon Yoksa İş İlanı Değildir
       if (!veriler.kalkis_ili && !veriler.kalkis_ilcesi) {
-        console.log('🚮 Filtrelendi (Lokasyon/Şehir İçermeyen İş Dışı Mesaj):', mesajMetni.substring(0, 40).replace(/\n/g, ' '));
+        console.log('🚮 Filtrelendi (Lokasyonsuz Mesaj):', mesajMetni.substring(0, 40).replace(/\n/g, ' '));
         continue;
       }
 
-      // 3. Akıllı Mükerrer Kontrolü (Aynı ilan tekrar geldiyse atlar)
+      // 3. Akıllı Mükerrer Kontrolü
       if (mukerrerIlanMi(mesajMetni, veriler.telefon, veriler.nereden, veriler.nereye)) {
-        console.log('⏳ Mükerrer/Tekrarlayan İlan atlandı (RAM & Rota Seviyesinde Engellendi).');
+        console.log('⏳ Mükerrer İlan atlandı.');
         continue;
       }
 
@@ -646,7 +607,7 @@ ${htmlTemizle(veriler.ham_mesaj)}
 ───────────────
 📲 <i>Nakliye Cepte canlı yük akışı</i>`;
 
-      // SUPABASE VE TELEGRAM İŞLEMLERİNİ PARALEL YÜRÜT
+      // SUPABASE KAYDI
       const supabaseKayit = supabase
         .from('ilanlar')
         .insert([
