@@ -114,6 +114,7 @@ function metniNormalizeEt(text) {
   if (!text) return '';
   return text
     .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/['’`′"\-_~*]/g, '') // Kesme, tırnak ve tire sembollerini tamamen kaldırır
     .replace(/İ/g, 'i')
     .replace(/I/g, 'i')
     .toLowerCase('tr-TR')
@@ -195,7 +196,7 @@ const TEL_REGEX = /(?:(?:\+?90)|0)?\s*[5][0-9]{2}\s*[0-9]{3}\s*[0-9]{2}\s*[0-9]{
 
 // --- 6. GELİŞMİŞ SPAM VE OTOMATİK BOT İLAN FİLTRESİ ---
 const KARA_KELIMELER_HAM = [
-  // ÇÖP VE OTOMATİK BOT İLANLARI (X YASAKLI BÖLGE)
+  // ÇÖP VE OTOMATİK BOT İLANLARI
   'qmove', 'q move', 'bugunku nakliye isi', 'bugun ku nakliye isi', 'bugunku nakliye',
   'bugunku yuk', 'bugunku lojistik gorevi', 'bugunku yuk tasima isi', 'bugunku yuk tasima',
   'bugun lojistik gorevi', 'bugun yuk tasima isi', 'bugun yuk tasima', 'bugun yuk',
@@ -206,7 +207,13 @@ const KARA_KELIMELER_HAM = [
   'bugun yukler', 'bugun ku yuk', 'odemeler pesin',
   'bugunku gorev', 'bugun gorev', 'gunun yuku', 'gunun gorevi', 'gunluk yuk listesi',
   'yuk listesi', 'guncel yuk', 'guncel sevkiyat', 'sevkiyat gorevi', 'nakliye gorevi',
-  'transfer gorevi', 'lojistik listesi', 'tasima listesi', 'rota listesi',
+  'transfer gorevi', 'lojistik listesi', 'tasima listesi', 'rota listesi', 'bugunku',
+
+  // WHATSAPP ŞİKAYET VE SPAM MESAJLARI
+  'bana whatsapp tan mesaj atabilir misiniz', 'bana whatsapptan mesaj atabilir misiniz',
+  'whatsapp tan mesaj atabilir misiniz', 'whatsapptan mesaj atabilir misiniz',
+  'mesajlarin gelmemesini istiyorum', 'bir turlu yapamadin', 'nasil yasaklayacagiz',
+  'nasil yasakliycagiz', 'bana mesaj atabilir misiniz',
 
   // Evden Eve / Mobilya
   'evden eve', 'ev tasima', 'parca esya', 'ceyiz tasima', 'ofis tasima', 'asansorlu nakliyat',
@@ -247,9 +254,14 @@ const KARA_REGEX = [
   /bugun.*nakliye/i,
   /bugun.*yuk/i,
   /bugun.*gorev/i,
+  /bugun.*lojistik/i,
   /yuk.*tasima.*isi/i,
   /(tasima|lojistik|nakliye|sevkiyat|transfer)\s*gorevi/i,
   /(yuk|sevkiyat|rota|tasima|lojistik)\s*listesi/i,
+  /whatsapp.*mesaj.*at/i,
+  /mesaj.*gelmemes/i,
+  /bir.*turlu.*yapamad/i,
+  /yasakl/i,
   /yuk.*havuzu/i, 
   /canli.*yuk/i,
   /sevkiyat.*listesi/i, 
@@ -294,14 +306,14 @@ function farkliAracTipiSayisi(temizMesaj) {
 
 function spamMi(mesaj) {
   if (!mesaj) return true;
-  if (mesaj.length < 10 || mesaj.length > 2500) return true;
+  if (mesaj.length < 10) return true;
   
   const harfSayisi = (mesaj.match(/[a-zA-ZğüşıöçĞÜŞİÖÇ]/g) || []).length;
   if (harfSayisi < 5) return true; 
 
   const temizMesaj = metniNormalizeEt(mesaj);
 
-  // 1. Kara Regex Taraması (Qmove, Bugünkü nakliye işi vb.)
+  // 1. Kara Regex Taraması (Qmove, Bugünkü nakliye işi, WhatsApp mesaj talepleri vb.)
   if (KARA_REGEX.some(regex => regex.test(temizMesaj))) {
     console.log('🚮 Spam Engellendi (Bot Kalıbı/Kara Regex):', mesaj.substring(0, 45).replace(/\n/g, ' '));
     return true;
@@ -329,7 +341,7 @@ function spamMi(mesaj) {
 
   const ayristirilan = gelismisMesajAyristir(mesaj);
 
-  // 5. Lokasyon Yığılması Kontrolü
+  // 5. Lokasyon Yığılması Kontrolü (Toplu İlan Engeli)
   if (ayristirilan.toplam_lokasyon_sayisi >= 3) {
     console.log(`🚮 Spam Engellendi (Toplu Bot Liste - ${ayristirilan.toplam_lokasyon_sayisi} Lokasyon):`, mesaj.substring(0, 35).replace(/\n/g, ' '));
     return true;
@@ -359,7 +371,6 @@ function mukerrerIlanMi(mesajMetni, telefon, nereden, nereye) {
   if (!mesajMetni) return true;
   const simdi = Date.now();
 
-  // Saat, emoji, semboller silinip sadece saf kelimeler alınır
   const ozMetin = metniNormalizeEt(mesajMetni)
     .replace(/\b(?:0[0-9]|1[0-9]|2[0-3])[:.][0-5][0-9]\b/g, '')
     .replace(/[^a-z0-9]/g, '');
