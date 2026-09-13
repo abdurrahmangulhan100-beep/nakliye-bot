@@ -82,8 +82,8 @@ const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8624611315:AAHnYXg
 const TELEGRAM_KANAL_ID = process.env.TELEGRAM_KANAL_ID || '-1003776147836'; 
 const PHONE_NUMBER = process.env.PHONE_NUMBER || '905XXXXXXXXX'; 
 
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://hqeaakpyqesxewvkxptf.supabase.co';
-const SUPABASE_KEY = process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhxZWFha3B5cWVzeGV3dmt4cHRmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcxNDMwMzMsImV4cCI6MjEwMjcxOTAzM30.QUi3fYgcJUVzMyldFUtjXLRTa6v2XshO-756aMfruxI';
+const SUPABASE_URL = process.env.SUPABASE_URL || 'https://tlnkimstwtqkbhsgdoql.supabase.co';
+const SUPABASE_KEY = process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRsbmtpbXN0d3Rxa2Joc2dkb3FsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY4ODI2OTYsImV4cCI6MjEwMjQ1ODY5Nn0.s5RYB22tlCxkUKuI3-cg7NETISlyL7zdEqjUAYyHq0s';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -114,7 +114,7 @@ function metniNormalizeEt(text) {
   if (!text) return '';
   return text
     .replace(/[\u200B-\u200D\uFEFF]/g, '')
-    .replace(/['’`′"\-_~*]/g, '') // Kesme, tırnak ve tire sembollerini tamamen kaldırır
+    .replace(/['’`′"\-_~*]/g, '')
     .replace(/İ/g, 'i')
     .replace(/I/g, 'i')
     .toLowerCase('tr-TR')
@@ -196,7 +196,6 @@ const TEL_REGEX = /(?:(?:\+?90)|0)?\s*[5][0-9]{2}\s*[0-9]{3}\s*[0-9]{2}\s*[0-9]{
 
 // --- 6. GELİŞMİŞ SPAM VE OTOMATİK BOT İLAN FİLTRESİ ---
 const KARA_KELIMELER_HAM = [
-  // ÇÖP VE OTOMATİK BOT İLANLARI
   'qmove', 'q move', 'bugunku nakliye isi', 'bugun ku nakliye isi', 'bugunku nakliye',
   'bugunku yuk', 'bugunku lojistik gorevi', 'bugunku yuk tasima isi', 'bugunku yuk tasima',
   'bugun lojistik gorevi', 'bugun yuk tasima isi', 'bugun yuk tasima', 'bugun yuk',
@@ -208,47 +207,30 @@ const KARA_KELIMELER_HAM = [
   'bugunku gorev', 'bugun gorev', 'gunun yuku', 'gunun gorevi', 'gunluk yuk listesi',
   'yuk listesi', 'guncel yuk', 'guncel sevkiyat', 'sevkiyat gorevi', 'nakliye gorevi',
   'transfer gorevi', 'lojistik listesi', 'tasima listesi', 'rota listesi', 'bugunku',
-
-  // WHATSAPP ŞİKAYET VE SPAM MESAJLARI
   'bana whatsapp tan mesaj atabilir misiniz', 'bana whatsapptan mesaj atabilir misiniz',
   'whatsapp tan mesaj atabilir misiniz', 'whatsapptan mesaj atabilir misiniz',
   'mesajlarin gelmemesini istiyorum', 'bir turlu yapamadin', 'nasil yasaklayacagiz',
   'nasil yasakliycagiz', 'bana mesaj atabilir misiniz',
-
-  // Evden Eve / Mobilya
   'evden eve', 'ev tasima', 'parca esya', 'ceyiz tasima', 'ofis tasima', 'asansorlu nakliyat',
-
-  // Grup / Kanal Reklamları & Linkler
   'whatsapp com', 'chat whatsapp', 't me', 'telegram me', 'gruba katil',
   'grup daveti', 'kanalini takip', 'tikla katil', 'linke tikla', 'wa me', 'joinchat',
-
-  // Dolandırıcılık / Kapora Uyarıları
   'parana sahip cik', 'guvenli odeme', 'odeme garantisi', 'kapora',
-
-  // Araç / Gayrimenkul Satışı
   'satilik dukkan', 'devren dukkan', 'satilik araba',
   'hasar kayitsiz', 'tramersiz', 'takasli', 'ekspertiz',
-
-  // Personel / İş Arayanlar
   'sofor araniyor', 'sofor alimi', 'kaptan araniyor',
   'maasli personel', 'usta araniyor', 'calisma arkadasi',
-
-  // İş Dışı Soru ve Muhabbet Kalıpları
   'kac para', 'fiyat nedir', 'kaca gidersin', 'ne kadar', 'kac km',
   'var mi', 'varmidir', 'varmis', 'bilgi alabilir miyim', 'bilgisi olan',
   'yardimci olabilir', 'hayirli isler', 'iyi calismalar', 'gunaydin',
   'iyi aksamlar', 'saat kac', 'arayan var mi', 'kim var', 'yol durumu',
   'radara dikkat', 'ceza yedik', 'kantar acik mi', 'mazot fiyat',
   'grup kurallari', 'hayirli cumalar', 'bereketli olsun', 'selamun aleykum',
-
-  // Alakasız Hizmet / Reklam İfadeleri
   'kiralik dukkan', 'satilik kamyon', 'lastik satilik', 'faturali',
   'fatura kesilir', 'muayene', 'yedek parca', 'sanayi', 'tamirci'
 ];
 
 const KARA_KELIMELER = KARA_KELIMELER_HAM.map(k => metniNormalizeEt(k));
 
-// Kesin Engelleyici Regex Kalıpları
 const KARA_REGEX = [
   /\bqmove\b/i,
   /bugun.*nakliye/i,
@@ -277,14 +259,12 @@ const KARA_REGEX = [
   /\b(kantar|radar|ceza)\b/i
 ];
 
-// Gerçek bir nakliye ilanında geçmesi muhtemel anahtar kelimeler
 const IS_BELIRTECLERI = [
   'yuk', 'ton', 'kamyon', 'tir', 'dorse', 'kirmizi', 'kapak', 'tenteli', 
   'damper', 'parsiyel', 'parca', 'palet', 'm3', 'saat', 'hazir', 'yukleme', 
   'bos', 'arac', 'araniyor', 'lazim', 'acil', 'alinacak', 'bosta'
 ];
 
-// --- 6.1 ARAÇ TİPİ YIĞILMASI TESPİT KÜTÜPHANESİ ---
 const ARAC_TIPLERI_HAM = [
   'tir', 'kamyon', 'kamyonet', 'kirkayak', 'damper', 'dorse', 'tenteli',
   'frigo', 'frigofirik', 'panelvan', 'lowbed', 'kirkbeygir', '10 teker',
@@ -313,26 +293,22 @@ function spamMi(mesaj) {
 
   const temizMesaj = metniNormalizeEt(mesaj);
 
-  // 1. Kara Regex Taraması (Qmove, Bugünkü nakliye işi, WhatsApp mesaj talepleri vb.)
   if (KARA_REGEX.some(regex => regex.test(temizMesaj))) {
     console.log('🚮 Spam Engellendi (Bot Kalıbı/Kara Regex):', mesaj.substring(0, 45).replace(/\n/g, ' '));
     return true;
   }
 
-  // 2. Kara Kelimeler Taraması
   const yakalanan = KARA_KELIMELER.find(kelime => temizMesaj.includes(kelime));
   if (yakalanan) {
     console.log(`🚮 Spam Engellendi [Yasaklı İfade: "${yakalanan}"]:`, mesaj.substring(0, 45).replace(/\n/g, ' '));
     return true;
   }
 
-  // 3. Reklam / Link Taraması
   if (temizMesaj.includes('http') || temizMesaj.includes('https') || temizMesaj.includes('channel') || temizMesaj.includes('t me') || temizMesaj.includes('wa me')) {
     console.log('🚮 Spam Engellendi (Link İçeriyor):', mesaj.substring(0, 30));
     return true;
   }
 
-  // 4. Parsiyel Yığılması Kontrolü
   const parsiyelSayisi = (temizMesaj.match(/parsiyel/g) || []).length;
   if (parsiyelSayisi >= 2) {
     console.log('🚮 Spam Engellendi (Çoklu Parsiyel):', mesaj.substring(0, 35).replace(/\n/g, ' '));
@@ -341,19 +317,16 @@ function spamMi(mesaj) {
 
   const ayristirilan = gelismisMesajAyristir(mesaj);
 
-  // 5. Lokasyon Yığılması Kontrolü (Toplu İlan Engeli)
   if (ayristirilan.toplam_lokasyon_sayisi >= 3) {
     console.log(`🚮 Spam Engellendi (Toplu Bot Liste - ${ayristirilan.toplam_lokasyon_sayisi} Lokasyon):`, mesaj.substring(0, 35).replace(/\n/g, ' '));
     return true;
   }
 
-  // 6. Araç Tipi Yığılması Kontrolü
   if (ayristirilan.toplam_arac_tipi_sayisi > 3) {
     console.log(`🚮 Spam Engellendi (Araç Tipi Yığılması - ${ayristirilan.toplam_arac_tipi_sayisi} Farklı Araç Tipi):`, mesaj.substring(0, 35).replace(/\n/g, ' '));
     return true;
   }
 
-  // 7. Pozitif İş Kontrolü
   const isIceriyorMu = IS_BELIRTECLERI.some(kelime => temizMesaj.includes(kelime));
   if (!isIceriyorMu) {
     console.log('🚮 Spam Engellendi (İş İlanı Belirteci/Anahtar Kelime Bulunamadı):', mesaj.substring(0, 45).replace(/\n/g, ' '));
@@ -365,7 +338,7 @@ function spamMi(mesaj) {
 
 // --- 7. GELİŞMİŞ AKILLI MÜKERRER İLAN ENGELLEME ---
 const mesajEngelleri = new Map();
-const MESAJ_ENGEL_SURESI_MS = 6 * 60 * 60 * 1000; // 6 Saat Mükerrer Filtresi
+const MESAJ_ENGEL_SURESI_MS = 6 * 60 * 60 * 1000;
 
 function mukerrerIlanMi(mesajMetni, telefon, nereden, nereye) {
   if (!mesajMetni) return true;
@@ -585,19 +558,15 @@ async function botuBaslat() {
 
       const mesajMetni = mesajMetniniCikar(msg.message);
 
-      // 1. Spam & Otomatik Bot İlanı Kontrolü
       if (spamMi(mesajMetni)) continue;
 
-      // 2. İlan Verilerini Ayrıştır
       const veriler = gelismisMesajAyristir(mesajMetni);
 
-      // Lokasyon Yoksa İş İlanı Değildir
       if (!veriler.kalkis_ili && !veriler.kalkis_ilcesi) {
         console.log('🚮 Filtrelendi (Lokasyonsuz Mesaj):', mesajMetni.substring(0, 40).replace(/\n/g, ' '));
         continue;
       }
 
-      // 3. Akıllı Mükerrer Kontrolü
       if (mukerrerIlanMi(mesajMetni, veriler.telefon, veriler.nereden, veriler.nereye)) {
         console.log('⏳ Mükerrer İlan atlandı.');
         continue;
@@ -618,7 +587,6 @@ ${htmlTemizle(veriler.ham_mesaj)}
 ───────────────
 📲 <i>Nakliye Cepte canlı yük akışı</i>`;
 
-      // SUPABASE KAYDI
       const supabaseKayit = supabase
         .from('ilanlar')
         .insert([
