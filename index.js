@@ -221,6 +221,9 @@ const KARA_KELIMELER_HAM = [
   'yapilacak sevkiyat', 'planlanan tasima', 'yuk havuzu',
   'canli yuk', 'sevkiyat listesi', 'otomatik paylasim', 
   'bugun yukler', 'bugun ku yuk', 'odemeler pesin',
+  'bugunku gorev', 'bugun gorev', 'gunun yuku', 'gunun gorevi', 'gunluk yuk listesi',
+  'yuk listesi', 'guncel yuk', 'guncel sevkiyat', 'sevkiyat gorevi', 'nakliye gorevi',
+  'transfer gorevi', 'lojistik listesi', 'tasima listesi', 'rota listesi',
 
   // İş Dışı Soru ve Muhabbet Kalıpları
   'kac para', 'fiyat nedir', 'kaca gidersin', 'ne kadar', 'kac km',
@@ -239,11 +242,14 @@ const KARA_KELIMELER = KARA_KELIMELER_HAM.map(k => metniNormalizeEt(k));
 
 // Kesin Engelleyici Regex Kalıpları
 const KARA_REGEX = [
-  /bugun.*(nakliye|yuk|lojistik|sevkiyat|gorev|gorevi)/i,
-  /bugunku.*(nakliye|yuk|lojistik|sevkiyat|gorev|gorevi)/i,
+  // "Bugünkü/Bugün" hemen ardından iş/görev ifadesi gelen bot başlıkları
+  // (metin normalize edildiği için ü->u, ş->s, ğ->g dönüşür; başlangıca yakın 0-5 kelime toleransı bırakılır)
+  /^\s*bugun(ku)?\b(?:\s+\S+){0,5}?\s*(yuk\s*tasima\s*isi|lojistik\s*gorevi|nakliye\s*gorevi|sevkiyat\s*gorevi|tasima\s*gorevi|gunun\s*yuku|gunun\s*gorevi)/i,
+  /\bbugun(ku)?\b(?:\s+\S+){0,3}?\s*(yuk|lojistik|nakliye|tasima|gorev|gorevi|sevkiyat)/i,
   /(bugunku|bugun\s*icin)\s*(yuk|nakliye|lojistik|tasima)/i,
   /yuk\s*tasima\s*isi/i,
-  /(tasima|lojistik)\s*gorevi/i,
+  /(tasima|lojistik|nakliye|sevkiyat|transfer)\s*gorevi/i,
+  /(yuk|sevkiyat|rota|tasima|lojistik)\s*listesi/i,
   /yuk.*havuzu/i, 
   /canli.*yuk/i,
   /sevkiyat.*listesi/i, 
@@ -265,6 +271,29 @@ const IS_BELIRTECLERI = [
   'damper', 'parsiyel', 'parca', 'palet', 'm3', 'saat', 'hazir', 'yukleme', 
   'bos', 'arac', 'araniyor', 'lazim', 'acil', 'alinacak', 'bosta'
 ];
+
+// --- 6.1 ARAÇ TİPİ YIĞILMASI TESPİT KÜTÜPHANESİ ---
+// Botlar tek mesajda birden fazla farklı araç tipini art arda sıralar (Frigo Damper Tenteli Kırkayak Tır 10 Teker gibi).
+// Gerçek bir nakliyeci genelde tek bir araç tipi ister; 3'ten fazla FARKLI araç tipi aynı mesajda geçiyorsa bu bot spam'idir.
+const ARAC_TIPLERI_HAM = [
+  'tir', 'kamyon', 'kamyonet', 'kirkayak', 'damper', 'dorse', 'tenteli',
+  'frigo', 'frigofirik', 'panelvan', 'lowbed', 'kirkbeygir', '10 teker',
+  'on teker', 'acik kasa', 'kapali kasa', 'romork', 'cekici', 'konteyner'
+];
+
+const PRECOMPILED_ARAC_TIPLERI = ARAC_TIPLERI_HAM.map(k => ({
+  ad: k,
+  regex: new RegExp(`\\b${metniNormalizeEt(k).replace(/\s+/g, '\\s*')}\\b`, 'i')
+}));
+
+// Verilen (zaten normalize edilmiş) metinde kaç FARKLI araç tipi geçtiğini sayar
+function farkliAracTipiSayisi(temizMesaj) {
+  let sayac = 0;
+  PRECOMPILED_ARAC_TIPLERI.forEach(item => {
+    if (item.regex.test(temizMesaj)) sayac++;
+  });
+  return sayac;
+}
 
 function spamMi(mesaj) {
   if (!mesaj) return true;
@@ -302,20 +331,40 @@ function spamMi(mesaj) {
   }
 
   // 5. Lokasyon Yığılması Kontrolü (Toplu Bot İlanları Süzme)
+  // Metin içinde art arda / toplamda 3 veya daha fazla farklı şehir/ilçe geçiyorsa
+  // bu tek bir gerçek rota değil, botun ürettiği "tüm Türkiye'yi rota yapan" toplu listedir.
   const ayristirilan = gelismisMesajAyristir(mesaj);
   if (ayristirilan.toplam_lokasyon_sayisi >= 3) {
     console.log(`🚮 Spam Engellendi (Toplu Bot Liste - ${ayristirilan.toplam_lokasyon_sayisi} Lokasyon):`, mesaj.substring(0, 35).replace(/\n/g, ' '));
     return true;
   }
 
-  // 6. Çoklu Tonaj Kontrolü
+  // 6. Araç Tipi Yığılması Kontrolü
+  // Bir mesajda 3'ten fazla FARKLI araç tipi (Frigo, Damper, Tenteli, Kırkayak, Tır, 10 Teker vb.)
+  // aynı anda geçiyorsa gerçek bir nakliyeci ilanı değil, botun ürettiği anahtar kelime spam'idir.
+  if (ayristirilan.toplam_arac_tipi_sayisi > 3) {
+    console.log(`🚮 Spam Engellendi (Araç Tipi Yığılması - ${ayristirilan.toplam_arac_tipi_sayisi} Farklı Araç Tipi):`, mesaj.substring(0, 35).replace(/\n/g, ' '));
+    return true;
+  }
+
+  // 7. Çoklu Tonaj Kontrolü
   const tonajMatches = temizMesaj.match(/[0-9]+(?:[\.,][0-9]+)?\s*(?:ton|kg|tonluk)/g) || [];
   if (tonajMatches.length >= 2) {
     console.log(`🚮 Spam Engellendi (Çoklu Tonaj Listesi - ${tonajMatches.length} adet):`, mesaj.substring(0, 35).replace(/\n/g, ' '));
     return true;
   }
 
-  // 7. Pozitif İş Kontrolü: İlan metninde iş belirtisi kelimelerden EN AZ BİRİ geçiyor mu?
+  // 8. Anlamlı Cümle / Kelime Yığını Kontrolü
+  // Gerçek bir ilan; net bir rota (kalkış-varış), tek bir araç tipi ve/veya tonaj/miktar bilgisi
+  // içeren sade bir cümledir. Eğer mesajda HEM lokasyon sayısı 2'yi geçiyor HEM de araç tipi
+  // sayısı 2'yi geçiyorsa (yani hem çoklu şehir hem çoklu araç aynı anda var), bu da bir
+  // kelime yığını / toplu bot listesi belirtisidir.
+  if (ayristirilan.toplam_lokasyon_sayisi >= 2 && ayristirilan.toplam_arac_tipi_sayisi >= 3) {
+    console.log('🚮 Spam Engellendi (Anlamsız Kelime Yığını - Çoklu Şehir + Çoklu Araç Tipi):', mesaj.substring(0, 45).replace(/\n/g, ' '));
+    return true;
+  }
+
+  // 9. Pozitif İş Kontrolü: İlan metninde iş belirtisi kelimelerden EN AZ BİRİ geçiyor mu?
   const isIceriyorMu = IS_BELIRTECLERI.some(kelime => temizMesaj.includes(kelime));
   if (!isIceriyorMu) {
     console.log('🚮 Spam Engellendi (İş İlanı Belirteci/Anahtar Kelime Bulunamadı):', mesaj.substring(0, 45).replace(/\n/g, ' '));
@@ -412,6 +461,9 @@ function gelismisMesajAyristir(mesajMetni) {
   else if (alt.includes('dorse')) aracTipi = 'Dorse';
   else if (alt.includes('panelvan')) aracTipi = 'Panelvan';
 
+  // Mesajda kaç FARKLI araç tipinin bir arada geçtiğini say (bot yığılması tespiti için)
+  const aracTipiSayisi = farkliAracTipiSayisi(alt);
+
   const tespitEdilenler = [];
 
   PRECOMPILED_KISALTMALAR.forEach(item => {
@@ -463,7 +515,8 @@ function gelismisMesajAyristir(mesajMetni) {
     varis_ilcesi,
     nereden: kalkis_ilcesi ? `${kalkis_ili} / ${kalkis_ilcesi}` : kalkis_ili,
     nereye: varis_ilcesi ? `${varis_ili} / ${varis_ilcesi}` : varis_ili,
-    toplam_lokasyon_sayisi: cakisilmayanlar.length
+    toplam_lokasyon_sayisi: cakisilmayanlar.length,
+    toplam_arac_tipi_sayisi: aracTipiSayisi
   };
 }
 
