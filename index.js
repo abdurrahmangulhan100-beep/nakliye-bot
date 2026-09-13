@@ -1,4 +1,7 @@
-// --- 0. NODE.JS ÇÖKME KORUMASI (ANTI-CRASH) ---
+// --- 0. NODE.JS ÇÖKME KORUMASI & IPV4 ÖNCELİĞİ ---
+const dns = require('dns');
+dns.setDefaultResultOrder('ipv4first'); // Gateway Timeout ve Fetch Failed hatalarını çözer
+
 process.on('uncaughtException', (err) => {
   console.error('🔥 Beklenmeyen Kritik Hata:', err);
 });
@@ -471,7 +474,7 @@ async function eskiIlanlariTemizle() {
   try {
     const onSaatOnce = new Date(Date.now() - 10 * 60 * 60 * 1000).toISOString();
     const { error, count } = await supabase
-      .from('ilanlar')
+      .from('bot_listings')
       .delete({ count: 'exact' })
       .lt('created_at', onSaatOnce);
 
@@ -587,20 +590,21 @@ ${htmlTemizle(veriler.ham_mesaj)}
 ───────────────
 📲 <i>Nakliye Cepte canlı yük akışı</i>`;
 
+      // SUPABASE'E DÜZGÜN TABLO VE SÜTUNLAR İLE KAYIT:
       const supabaseKayit = supabase
-        .from('ilanlar')
+        .from('bot_listings')
         .insert([
           {
-            title: veriler.arac_tipi !== 'Belirtilmedi' ? veriler.arac_tipi : 'Nakliye İlanı',
-            content: veriler.ham_mesaj,
-            phone: veriler.telefon,
-            city_from: veriler.nereden,
-            city_to: veriler.nereye
+            from_city: veriler.nereden || 'Belirtilmedi',
+            to_city: veriler.nereye || 'Belirtilmedi',
+            cargo_detail: veriler.ham_mesaj,
+            vehicle_type: veriler.arac_tipi,
+            company_name: 'WhatsApp Lojistik Akışı'
           }
         ])
         .then(({ error }) => {
           if (error) console.error('❌ Supabase Kayıt Hatası:', error.message);
-          else console.log('⚡ İlan Supabase veritabanına kaydedildi!');
+          else console.log('⚡ İlan Supabase bot_listings tablosuna kaydedildi!');
         })
         .catch(err => console.error('❌ Beklenmeyen Supabase Hatası:', err.message));
 
