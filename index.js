@@ -1,6 +1,6 @@
 // --- 0. NODE.JS ÇÖKME KORUMASI & IPV4 ÖNCELİĞİ ---
 const dns = require('dns');
-dns.setDefaultResultOrder('ipv4first'); // Gateway Timeout ve Fetch Failed hatalarını çözer
+dns.setDefaultResultOrder('ipv4first');
 
 process.on('uncaughtException', (err) => {
   console.error('🔥 Beklenmeyen Kritik Hata:', err);
@@ -38,7 +38,7 @@ http.createServer((req, res) => {
       <!DOCTYPE html>
       <html>
         <head>
-          <title>WhatsApp Bağlantı Paneli</title>
+          <title>Nakliye Cepte - WhatsApp Panel</title>
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <style>
             body { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background-color: #f0f2f5; font-family: sans-serif; }
@@ -53,12 +53,12 @@ http.createServer((req, res) => {
         <body>
           <div class="card">
             <h2>Nakliye Cepte Bot</h2>
-            <div class="badge">⚡ Bağlantı Paneli</div><br>
+            <div class="badge">⚡ Canlı Yük Toplama Servisi</div><br>
             
             ${currentPairingCode ? `
               <p><b>📱 EŞLEŞTİRME KODUNUZ:</b></p>
               <div class="code-box">${currentPairingCode}</div>
-              <p>WhatsApp -> <b>Bağlı Cihazlar</b> -> <b>Cihaz Bağla</b> -> <b>Telefon Numarası İle Bağla</b> adımlarını izleyip bu kodu girin.</p>
+              <p>WhatsApp -> <b>Bağlı Cihazlar</b> -> <b>Cihaz Bağla</b> -> <b>Telefon Numarası İle Bağla</b></p>
             ` : ''}
 
             ${qrDataURL ? `
@@ -67,7 +67,7 @@ http.createServer((req, res) => {
             ` : ''}
 
             ${!currentPairingCode && !qrDataURL ? `
-              <p>🟢 Bot bağlı veya QR/Kod oluşturuluyor... Sayfayı yenileyin.</p>
+              <p>🟢 Bot bağlı ve grupları dinliyor...</p>
             ` : ''}
           </div>
         </body>
@@ -80,7 +80,7 @@ http.createServer((req, res) => {
   console.log(`🌐 Sunucu ${PORT} portunda çalışıyor.`);
 });
 
-// --- 2. SUPABASE, TELEGRAM VE TELEFON AYARLARI ---
+// --- 2. SUPABASE VEYA AYARLAR ---
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8624611315:AAHnYXg9RaaWjumP6jeCBzogVNYe_XQ13xc'; 
 const TELEGRAM_KANAL_ID = process.env.TELEGRAM_KANAL_ID || '-1003776147836'; 
 const PHONE_NUMBER = process.env.PHONE_NUMBER || '905XXXXXXXXX'; 
@@ -112,59 +112,50 @@ function mesajMetniniCikar(messageObj) {
   );
 }
 
-// --- 4. ULTRASONİK TÜRKÇE VE UNICODE NORMALİZATÖRÜ ---
+// --- 4. TÜRKÇE NORMALİZASYON ---
 function metniNormalizeEt(text) {
   if (!text) return '';
   return text
     .replace(/[\u200B-\u200D\uFEFF]/g, '')
-    .replace(/['’`′"\-_~*]/g, '')
-    .replace(/İ/g, 'i')
-    .replace(/I/g, 'i')
+    .replace(/['’`′"\-_~*]/g, ' ')
+    .replace(/İ/g, 'i').replace(/I/g, 'i')
     .toLowerCase('tr-TR')
-    .replace(/ı/g, 'i')
-    .replace(/i̇/g, 'i')
-    .replace(/ğ/g, 'g')
-    .replace(/ü/g, 'u')
-    .replace(/ş/g, 's')
-    .replace(/ö/g, 'o')
+    .replace(/ı/g, 'i').replace(/i̇/g, 'i')
+    .replace(/ğ/g, 'g').replace(/ü/g, 'u')
+    .replace(/ş/g, 's').replace(/ö/g, 'o')
     .replace(/ç/g, 'c')
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
-// --- 5. LOKASYON KÜTÜPHANESİ VE PRE-COMPILED REGEX'LER ---
+// --- 5. LOKASYON KÜTÜPHANESİ ---
 const KISALTMALAR = {
-  'kny': { il: 'Konya' },
-  'ist': { il: 'İstanbul' },
-  'izmir': { il: 'İzmir' },
-  'ank': { il: 'Ankara' },
-  'adana': { il: 'Adana' },
-  'antep': { il: 'Gaziantep' },
-  'g.antep': { il: 'Gaziantep' },
-  'maras': { il: 'Kahramanmaraş' },
-  'k.maras': { il: 'Kahramanmaraş' },
-  'urfa': { il: 'Şanlıurfa' },
-  's.urfa': { il: 'Şanlıurfa' },
-  'egl': { il: 'Konya', ilce: 'Ereğli' },
-  'gebze': { il: 'Kocaeli', ilce: 'Gebze' },
-  'corlu': { il: 'Tekirdağ', ilce: 'Çorlu' },
-  'iskenderun': { il: 'Hatay', ilce: 'İskenderun' },
-  'inegol': { il: 'Bursa', ilce: 'İnegöl' }
+  'kny': { il: 'Konya' }, 'ist': { il: 'İstanbul' }, 'izmir': { il: 'İzmir' },
+  'ank': { il: 'Ankara' }, 'adana': { il: 'Adana' }, 'antep': { il: 'Gaziantep' },
+  'g.antep': { il: 'Gaziantep' }, 'maras': { il: 'Kahramanmaraş' }, 'k.maras': { il: 'Kahramanmaraş' },
+  'urfa': { il: 'Şanlıurfa' }, 's.urfa': { il: 'Şanlıurfa' }, 'egl': { il: 'Konya', ilce: 'Ereğli' },
+  'gebze': { il: 'Kocaeli', ilce: 'Gebze' }, 'corlu': { il: 'Tekirdağ', ilce: 'Çorlu' },
+  'iskenderun': { il: 'Hatay', ilce: 'İskenderun' }, 'inegol': { il: 'Bursa', ilce: 'İnegöl' },
+  'fetiye': { il: 'Muğla', ilce: 'Fethiye' }, 'fethiye': { il: 'Muğla', ilce: 'Fethiye' }
 };
 
 const ILCE_IL_HARITASI = {
   'ereğli': 'Konya', 'eregli': 'Konya', 'ilgın': 'Konya', 'ilgin': 'Konya',
   'akşehir': 'Konya', 'aksehir': 'Konya', 'karapınar': 'Konya', 'karapinar': 'Konya',
   'seydişehir': 'Konya', 'seydisehir': 'Konya', 'beyşehir': 'Konya', 'beysehir': 'Konya',
-  'kulu': 'Konya', 'cihanbeyli': 'Konya', 'çumra': 'Konya', 'cumra': 'Konya', 'doğanhisar': 'Konya',
+  'kulu': 'Konya', 'cihanbeyli': 'Konya', 'çumra': 'Konya', 'cumra': 'Konya',
   'gebze': 'Kocaeli', 'dilovası': 'Kocaeli', 'körfez': 'Kocaeli',
   'çorlu': 'Tekirdağ', 'çerkezköy': 'Tekirdağ', 'iskenderun': 'Hatay',
   'ceyhan': 'Adana', 'bandırma': 'Balıkesir', 'inegöl': 'Bursa', 'nazilli': 'Aydın',
   'söke': 'Aydın', 'aliağa': 'İzmir', 'torbalı': 'İzmir', 'menemen': 'İzmir',
-  'polatlı': 'Ankara', 'kazan': 'Ankara', 'çubuk': 'Ankara', 'tarsus': 'Mersin',
+  'polatlı': 'Ankara', 'polatli': 'Ankara', 'kazan': 'Ankara', 'çubuk': 'Ankara', 'tarsus': 'Mersin',
   'turgutlu': 'Manisa', 'salihli': 'Manisa', 'akhisar': 'Manisa', 'kızıltepe': 'Mardin',
-  'silivri': 'İstanbul', 'esenyurt': 'İstanbul', 'nilüfer': 'Bursa', 'nilufer': 'Bursa'
+  'silivri': 'İstanbul', 'esenyurt': 'İstanbul', 'nilüfer': 'Bursa', 'nilufer': 'Bursa',
+  'ayvalık': 'Balıkesir', 'ayvalik': 'Balıkesir', 'edremit': 'Balıkesir', 'akçay': 'Balıkesir',
+  'fethiye': 'Muğla', 'fetiye': 'Muğla', 'marmaris': 'Muğla', 'bodrum': 'Muğla',
+  'kuşadası': 'Aydın', 'kusadasi': 'Aydın', 'elbistan': 'Kahramanmaraş', 'bergama': 'İzmir',
+  'sarayköy': 'Denizli', 'saraykoy': 'Denizli', 'demirtaş': 'Bursa', 'demirtas': 'Bursa'
 };
 
 const ILLER = [
@@ -197,188 +188,165 @@ const PRECOMPILED_ILLER = ILLER.map(il => ({
 
 const TEL_REGEX = /(?:(?:\+?90)|0)?\s*[5][0-9]{2}\s*[0-9]{3}\s*[0-9]{2}\s*[0-9]{2}/g;
 
-// --- 6. GELİŞMİŞ SPAM VE OTOMATİK BOT İLAN FİLTRESİ ---
-const KARA_KELIMELER_HAM = [
-  'qmove', 'q move', 'bugunku nakliye isi', 'bugun ku nakliye isi', 'bugunku nakliye',
-  'bugunku yuk', 'bugunku lojistik gorevi', 'bugunku yuk tasima isi', 'bugunku yuk tasima',
-  'bugun lojistik gorevi', 'bugun yuk tasima isi', 'bugun yuk tasima', 'bugun yuk',
-  'lojistik gorevi', 'yuk tasima isi', 'tasima gorevi', 'tasima isi',
-  'nakliye yuku', 'kaliteli yuk', 'tasima programi', 'bugunun kaliteli',
-  'yapilacak sevkiyat', 'planlanan tasima', 'yuk havuzu',
-  'canli yuk', 'sevkiyat listesi', 'otomatik paylasim', 
-  'bugun yukler', 'bugun ku yuk', 'odemeler pesin',
-  'bugunku gorev', 'bugun gorev', 'gunun yuku', 'gunun gorevi', 'gunluk yuk listesi',
-  'yuk listesi', 'guncel yuk', 'guncel sevkiyat', 'sevkiyat gorevi', 'nakliye gorevi',
-  'transfer gorevi', 'lojistik listesi', 'tasima listesi', 'rota listesi', 'bugunku',
-  'bana whatsapp tan mesaj atabilir misiniz', 'bana whatsapptan mesaj atabilir misiniz',
-  'whatsapp tan mesaj atabilir misiniz', 'whatsapptan mesaj atabilir misiniz',
-  'mesajlarin gelmemesini istiyorum', 'bir turlu yapamadin', 'nasil yasaklayacagiz',
-  'nasil yasakliycagiz', 'bana mesaj atabilir misiniz',
-  'evden eve', 'ev tasima', 'parca esya', 'ceyiz tasima', 'ofis tasima', 'asansorlu nakliyat',
-  'whatsapp com', 'chat whatsapp', 't me', 'telegram me', 'gruba katil',
-  'grup daveti', 'kanalini takip', 'tikla katil', 'linke tikla', 'wa me', 'joinchat',
-  'parana sahip cik', 'guvenli odeme', 'odeme garantisi', 'kapora',
-  'satilik dukkan', 'devren dukkan', 'satilik araba',
-  'hasar kayitsiz', 'tramersiz', 'takasli', 'ekspertiz',
-  'sofor araniyor', 'sofor alimi', 'kaptan araniyor',
-  'maasli personel', 'usta araniyor', 'calisma arkadasi',
-  'kac para', 'fiyat nedir', 'kaca gidersin', 'ne kadar', 'kac km',
-  'var mi', 'varmidir', 'varmis', 'bilgi alabilir miyim', 'bilgisi olan',
-  'yardimci olabilir', 'hayirli isler', 'iyi calismalar', 'gunaydin',
-  'iyi aksamlar', 'saat kac', 'arayan var mi', 'kim var', 'yol durumu',
-  'radara dikkat', 'ceza yedik', 'kantar acik mi', 'mazot fiyat',
-  'grup kurallari', 'hayirli cumalar', 'bereketli olsun', 'selamun aleykum',
-  'kiralik dukkan', 'satilik kamyon', 'lastik satilik', 'faturali',
-  'fatura kesilir', 'muayene', 'yedek parca', 'sanayi', 'tamirci'
-];
-
-const KARA_KELIMELER = KARA_KELIMELER_HAM.map(k => metniNormalizeEt(k));
-
+// --- 6. KESİNTİSİZ SPAM VE SAÇMA İLAN ENGELLEYİCİ ---
 const KARA_REGEX = [
-  /\bqmove\b/i,
-  /bugun.*nakliye/i,
-  /bugun.*yuk/i,
-  /bugun.*gorev/i,
-  /bugun.*lojistik/i,
-  /yuk.*tasima.*isi/i,
-  /(tasima|lojistik|nakliye|sevkiyat|transfer)\s*gorevi/i,
-  /(yuk|sevkiyat|rota|tasima|lojistik)\s*listesi/i,
-  /whatsapp.*mesaj.*at/i,
-  /mesaj.*gelmemes/i,
-  /bir.*turlu.*yapamad/i,
-  /yasakl/i,
-  /yuk.*havuzu/i, 
-  /canli.*yuk/i,
-  /sevkiyat.*listesi/i, 
-  /otomatik.*paylasim/i, 
-  /evden.*eve/i,
-  /parca.*esya/i, 
-  /sofor.*aran/i, 
-  /kapora/i, 
-  /guvenli.*odeme/i,
-  /\b(var\s*mi|varmidir|varmis)\b/i,
-  /\b(kac\s*tl|kac\s*para|ne\s*kadar)\b/i,
-  /\b(bilgi\s*alabilir|bilgisi\s*olan)\b/i,
-  /\b(kantar|radar|ceza)\b/i
+  /sofor.*aran/i, /kaptan.*aran/i, /eleman.*aran/i, /calisma.*arkadasi/i,
+  /satilik.*tir/i, /satilik.*kamyon/i, /satilik.*dorse/i, /satilik.*araba/i,
+  /devren.*dukkan/i, /hasar.*kayitsiz/i, /ekspertiz/i, /satilik.*lastik/i,
+  /evden.*eve/i, /ev.*tasima/i, /ofis.*tasima/i, /ceyiz.*tasima/i,
+  /hayirli.*isler/i, /iyi.*calismalar/i, /gunaydin/i, /iyi.*aksamlar/i,
+  /hayirli.*cumalar/i, /selamun.*aleykum/i, /saat.*kac/i, /kantar.*acik/i,
+  /radar/i, /ceza.*yedik/i, /mazot.*fiyat/i, /grup.*kurallar/i,
+  /http/i, /https/i, /t\.me/i, /wa\.me/i, /chat\.whatsapp/i, /gruba.*katil/i,
+  /parana.*sahip.*cik/i, /kapora/i, /guvenli.*odeme/i
 ];
 
-const IS_BELIRTECLERI = [
-  'yuk', 'ton', 'kamyon', 'tir', 'dorse', 'kirmizi', 'kapak', 'tenteli', 
-  'damper', 'parsiyel', 'parca', 'palet', 'm3', 'saat', 'hazir', 'yukleme', 
-  'bos', 'arac', 'araniyor', 'lazim', 'acil', 'alinacak', 'bosta'
-];
+function genelSpamMi(mesaj) {
+  if (!mesaj || mesaj.length < 8) return true;
+  const temiz = metniNormalizeEt(mesaj);
+  return KARA_REGEX.some(r => r.test(temiz));
+}
 
-const ARAC_TIPLERI_HAM = [
-  'tir', 'kamyon', 'kamyonet', 'kirkayak', 'damper', 'dorse', 'tenteli',
-  'frigo', 'frigofirik', 'panelvan', 'lowbed', 'kirkbeygir', '10 teker',
-  'on teker', 'acik kasa', 'kapali kasa', 'romork', 'cekici', 'konteyner'
-];
+// --- 7. ÇOKLU İLAN AYRIŞTIRMA VE LOKASYON MİRASI MOTORU ---
+function aracTipiTespit(metin) {
+  const alt = metniNormalizeEt(metin);
+  if (alt.includes('13 60') || alt.includes('1360') || alt.includes('tir')) return 'TIR';
+  if (alt.includes('frigo') || alt.includes('frigofirik')) return 'Frigo TIR';
+  if (alt.includes('kirmizi kapak') || alt.includes('tenteli')) return 'Tenteli TIR';
+  if (alt.includes('kamyonet')) return 'Kamyonet';
+  if (alt.includes('kirkayak')) return 'Kırkayak';
+  if (alt.includes('kamyon')) return 'Kamyon';
+  if (alt.includes('damper')) return 'Damperli';
+  if (alt.includes('dorse')) return 'Dorse';
+  if (alt.includes('40 ayak') || alt.includes('40ayak')) return 'Kırkayak (40 Ayak)';
+  return 'Belirtilmedi';
+}
 
-const PRECOMPILED_ARAC_TIPLERI = ARAC_TIPLERI_HAM.map(k => ({
-  ad: k,
-  regex: new RegExp(`\\b${metniNormalizeEt(k).replace(/\s+/g, '\\s*')}\\b`, 'i')
-}));
+function satirdanLokasyonlariBul(satir) {
+  const tespitEdilenler = [];
 
-function farkliAracTipiSayisi(temizMesaj) {
-  let sayac = 0;
-  PRECOMPILED_ARAC_TIPLERI.forEach(item => {
-    if (item.regex.test(temizMesaj)) sayac++;
+  PRECOMPILED_KISALTMALAR.forEach(item => {
+    const m = satir.match(item.regex);
+    if (m) tespitEdilenler.push({ il: item.il, ilce: item.ilce, index: m.index });
   });
-  return sayac;
+
+  PRECOMPILED_ILCE_IL.forEach(item => {
+    const m = satir.match(item.regex);
+    if (m) tespitEdilenler.push({ il: item.il, ilce: item.ilce, index: m.index });
+  });
+
+  PRECOMPILED_ILLER.forEach(item => {
+    const m = satir.match(item.regex);
+    if (m) tespitEdilenler.push({ il: item.il, ilce: null, index: m.index });
+  });
+
+  tespitEdilenler.sort((a, b) => a.index - b.index);
+
+  // Çakışan lokasyonları temizle
+  const cakisilmayanlar = [];
+  tespitEdilenler.forEach(item => {
+    if (!cakisilmayanlar.some(c => Math.abs(c.index - item.index) < 3)) {
+      cakisilmayanlar.push(item);
+    }
+  });
+
+  return cakisilmayanlar;
 }
 
-function spamMi(mesaj) {
-  if (!mesaj) return true;
-  if (mesaj.length < 10) return true;
-  
-  const harfSayisi = (mesaj.match(/[a-zA-ZğüşıöçĞÜŞİÖÇ]/g) || []).length;
-  if (harfSayisi < 5) return true; 
+function cokluIlanlariAyristir(hamMesaj) {
+  if (genelSpamMi(hamMesaj)) return [];
 
-  const temizMesaj = metniNormalizeEt(mesaj);
-
-  if (KARA_REGEX.some(regex => regex.test(temizMesaj))) {
-    console.log('🚮 Spam Engellendi (Bot Kalıbı/Kara Regex):', mesaj.substring(0, 45).replace(/\n/g, ' '));
-    return true;
+  // Genel Telefon Numarası
+  const geneltelEsllesmeler = hamMesaj.match(TEL_REGEX);
+  let genelTelefon = null;
+  if (geneltelEsllesmeler && geneltelEsllesmeler.length > 0) {
+    genelTelefon = geneltelEsllesmeler[0].replace(/\s+/g, '').replace(/\+90/, '0');
   }
 
-  const yakalanan = KARA_KELIMELER.find(kelime => temizMesaj.includes(kelime));
-  if (yakalanan) {
-    console.log(`🚮 Spam Engellendi [Yasaklı İfade: "${yakalanan}"]:`, mesaj.substring(0, 45).replace(/\n/g, ' '));
-    return true;
+  const satirlar = hamMesaj.split('\n').map(s => s.trim()).filter(s => s.length > 0);
+  const bulunanIlanlar = [];
+
+  let ortakKalkisIl = null;
+  let ortakKalkisIlce = null;
+
+  // Başlıkta "AYVALIK YÜKLEMELİ" veya "POLATLI YÜKLEME" var mı?
+  for (const satir of satirlar.slice(0, 3)) {
+    if (/yukleme|yuklemeli|cikisli|kalkis/i.test(satir)) {
+      const loks = satirdanLokasyonlariBul(satir);
+      if (loks.length > 0) {
+        ortakKalkisIl = loks[0].il;
+        ortakKalkisIlce = loks[0].ilce;
+        break;
+      }
+    }
   }
 
-  if (temizMesaj.includes('http') || temizMesaj.includes('https') || temizMesaj.includes('channel') || temizMesaj.includes('t me') || temizMesaj.includes('wa me')) {
-    console.log('🚮 Spam Engellendi (Link İçeriyor):', mesaj.substring(0, 30));
-    return true;
+  for (const satir of satirlar) {
+    // Telefon numarası veya başlık satırlarını atla
+    if (/^\d+$/.test(satir.replace(/\s+/g, '')) || /lojistik|nakliye|tel|iletisim/i.test(satir) && satir.length < 35) {
+      continue;
+    }
+
+    const lokasyonlar = satirdanLokasyonlariBul(satir);
+    const satirTel = (satir.match(TEL_REGEX) || [])[0];
+    const telefon = satirTel ? satirTel.replace(/\s+/g, '').replace(/\+90/, '0') : genelTelefon;
+    const aracTipi = aracTipiTespit(satir);
+
+    let kalkis_ili = null, kalkis_ilcesi = null;
+    let varis_ili = null, varis_ilcesi = null;
+
+    if (lokasyonlar.length >= 2) {
+      // Satırda hem kalkış hem varış var (Örn: "NAZİLLİ ADANA 1.TON PARÇA")
+      kalkis_ili = lokasyonlar[0].il;
+      kalkis_ilcesi = lokasyonlar[0].ilce;
+      varis_ili = lokasyonlar[1].il;
+      varis_ilcesi = lokasyonlar[1].ilce;
+    } else if (lokasyonlar.length === 1 && ortakKalkisIl) {
+      // Satırda tek şehir var ve başlıkta ortak kalkış var (Örn: "İSTANBUL 13.60 TIR")
+      kalkis_ili = ortakKalkisIl;
+      kalkis_ilcesi = ortakKalkisIlce;
+      varis_ili = lokasyonlar[0].il;
+      varis_ilcesi = lokasyonlar[0].ilce;
+    }
+
+    if (kalkis_ili) {
+      const nereden = kalkis_ilcesi ? `${kalkis_ili} / ${kalkis_ilcesi}` : kalkis_ili;
+      const nereye = varis_ilcesi ? `${varis_ili} / ${varis_ilcesi}` : (varis_ili || 'Belirtilmedi');
+
+      bulunanIlanlar.push({
+        kalkis_ili,
+        varis_ili,
+        nereden,
+        nereye,
+        arac_tipi: aracTipi,
+        telefon: telefon || 'İlan metnini inceleyin',
+        detay: satir
+      });
+    }
   }
 
-  const parsiyelSayisi = (temizMesaj.match(/parsiyel/g) || []).length;
-  if (parsiyelSayisi >= 2) {
-    console.log('🚮 Spam Engellendi (Çoklu Parsiyel):', mesaj.substring(0, 35).replace(/\n/g, ' '));
-    return true;
-  }
-
-  const ayristirilan = gelismisMesajAyristir(mesaj);
-
-  if (ayristirilan.toplam_lokasyon_sayisi >= 3) {
-    console.log(`🚮 Spam Engellendi (Toplu Bot Liste - ${ayristirilan.toplam_lokasyon_sayisi} Lokasyon):`, mesaj.substring(0, 35).replace(/\n/g, ' '));
-    return true;
-  }
-
-  if (ayristirilan.toplam_arac_tipi_sayisi > 3) {
-    console.log(`🚮 Spam Engellendi (Araç Tipi Yığılması - ${ayristirilan.toplam_arac_tipi_sayisi} Farklı Araç Tipi):`, mesaj.substring(0, 35).replace(/\n/g, ' '));
-    return true;
-  }
-
-  const isIceriyorMu = IS_BELIRTECLERI.some(kelime => temizMesaj.includes(kelime));
-  if (!isIceriyorMu) {
-    console.log('🚮 Spam Engellendi (İş İlanı Belirteci/Anahtar Kelime Bulunamadı):', mesaj.substring(0, 45).replace(/\n/g, ' '));
-    return true;
-  }
-
-  return false;
+  return bulunanIlanlar;
 }
 
-// --- 7. GELİŞMİŞ AKILLI MÜKERRER İLAN ENGELLEME ---
+// --- 8. MÜKERRER İLAN ENGELLEME (6 SAAT HASH KONTROLÜ) ---
 const mesajEngelleri = new Map();
 const MESAJ_ENGEL_SURESI_MS = 6 * 60 * 60 * 1000;
 
-function mukerrerIlanMi(mesajMetni, telefon, nereden, nereye) {
-  if (!mesajMetni) return true;
+function mukerrerIlanMi(kalkis, varis, detay, telefon) {
   const simdi = Date.now();
+  const ozMetin = metniNormalizeEt(`${kalkis}_${varis}_${detay}_${telefon}`);
+  const hash = crypto.createHash('md5').update(ozMetin).digest('hex');
 
-  const ozMetin = metniNormalizeEt(mesajMetni)
-    .replace(/\b(?:0[0-9]|1[0-9]|2[0-3])[:.][0-5][0-9]\b/g, '')
-    .replace(/[^a-z0-9]/g, '');
-
-  if (ozMetin.length < 8) return true;
-
-  const metinHash = crypto.createHash('md5').update(ozMetin).digest('hex');
-
-  let telefonRotaHash = null;
-  if (telefon) {
-    const telTemiz = telefon.replace(/[^0-9]/g, '');
-    const rotaMetin = `${telTemiz}_${nereden || ''}_${nereye || ''}`;
-    telefonRotaHash = crypto.createHash('md5').update(rotaMetin).digest('hex');
-  }
-
-  if (mesajEngelleri.has(metinHash)) {
-    const kayitZamani = mesajEngelleri.get(metinHash);
+  if (mesajEngelleri.has(hash)) {
+    const kayitZamani = mesajEngelleri.get(hash);
     if (simdi - kayitZamani < MESAJ_ENGEL_SURESI_MS) return true;
   }
 
-  if (telefonRotaHash && mesajEngelleri.has(telefonRotaHash)) {
-    const kayitZamani = mesajEngelleri.get(telefonRotaHash);
-    if (simdi - kayitZamani < MESAJ_ENGEL_SURESI_MS) return true;
-  }
-
-  mesajEngelleri.set(metinHash, simdi);
-  if (telefonRotaHash) mesajEngelleri.set(telefonRotaHash, simdi);
-
+  mesajEngelleri.set(hash, simdi);
   return false;
 }
 
-// --- 8. ŞEHİR / İLÇE PARSER KÜTÜPHANESİ ---
+// --- 9. YARDIMCI BİLDİRİMLER VE OTOMATİK TEMİZLİK ---
 function htmlTemizle(text) {
   if (!text) return '';
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -391,95 +359,20 @@ async function telegramaGonder(metin) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chat_id: TELEGRAM_KANAL_ID, text: metin, parse_mode: 'HTML' })
     });
-    console.log('🚀 Telegram kanalına yayınlandı!');
   } catch (err) {
     console.error('⚠️ Telegram Hatası:', err.message);
   }
 }
 
-function gelismisMesajAyristir(mesajMetni) {
-  const telEsllesmeler = mesajMetni.match(TEL_REGEX);
-  let telefon = null;
-  if (telEsllesmeler && telEsllesmeler.length > 0) {
-    telefon = telEsllesmeler.map(t => t.replace(/\s+/g, '').replace(/\+90/, '0')).join(' / ');
-  }
-
-  let aracTipi = 'Belirtilmedi';
-  const alt = metniNormalizeEt(mesajMetni);
-  if (alt.includes('tir')) aracTipi = 'TIR';
-  else if (alt.includes('kamyonet')) aracTipi = 'Kamyonet';
-  else if (alt.includes('kamyon')) aracTipi = 'Kamyon';
-  else if (alt.includes('kirkayak')) aracTipi = 'Kırkayak';
-  else if (alt.includes('damper')) aracTipi = 'Damperli';
-  else if (alt.includes('dorse')) aracTipi = 'Dorse';
-  else if (alt.includes('panelvan')) aracTipi = 'Panelvan';
-
-  const aracTipiSayisi = farkliAracTipiSayisi(alt);
-  const tespitEdilenler = [];
-
-  PRECOMPILED_KISALTMALAR.forEach(item => {
-    const m = mesajMetni.match(item.regex);
-    if (m) tespitEdilenler.push({ il: item.il, ilce: item.ilce, index: m.index, ham: m[0] });
-  });
-
-  PRECOMPILED_ILCE_IL.forEach(item => {
-    const m = mesajMetni.match(item.regex);
-    if (m) tespitEdilenler.push({ il: item.il, ilce: item.ilce, index: m.index, ham: m[0] });
-  });
-
-  PRECOMPILED_ILLER.forEach(item => {
-    const m = mesajMetni.match(item.regex);
-    if (m) tespitEdilenler.push({ il: item.il, ilce: null, index: m.index, ham: m[0] });
-  });
-
-  tespitEdilenler.sort((a, b) => a.index - b.index);
-
-  const cakisilmayanlar = [];
-  tespitEdilenler.forEach(item => {
-    if (!cakisilmayanlar.some(c => Math.abs(c.index - item.index) < 3)) {
-      cakisilmayanlar.push(item);
-    }
-  });
-
-  let kalkis_ili = null, kalkis_ilcesi = null;
-  let varis_ili = null, varis_ilcesi = null;
-
-  if (cakisilmayanlar.length >= 2) {
-    kalkis_ili = cakisilmayanlar[0].il;
-    kalkis_ilcesi = cakisilmayanlar[0].ilce;
-    varis_ili = cakisilmayanlar[1].il;
-    varis_ilcesi = cakisilmayanlar[1].ilce;
-  } else if (cakisilmayanlar.length === 1) {
-    kalkis_ili = cakisilmayanlar[0].il;
-    kalkis_ilcesi = cakisilmayanlar[0].ilce;
-  }
-
-  return {
-    ham_mesaj: mesajMetni,
-    arac_tipi: aracTipi,
-    telefon: telefon,
-    kalkis_ili,
-    kalkis_ilcesi,
-    varis_ili,
-    varis_ilcesi,
-    nereden: kalkis_ilcesi ? `${kalkis_ili} / ${kalkis_ilcesi}` : kalkis_ili,
-    nereye: varis_ilcesi ? `${varis_ili} / ${varis_ilcesi}` : varis_ili,
-    toplam_lokasyon_sayisi: cakisilmayanlar.length,
-    toplam_arac_tipi_sayisi: aracTipiSayisi
-  };
-}
-
-// --- 9. OTOMATİK VERİTABANI TEMİZLEYİCİ ---
 async function eskiIlanlariTemizle() {
   try {
     const onSaatOnce = new Date(Date.now() - 10 * 60 * 60 * 1000).toISOString();
-    const { error, count } = await supabase
+    const { count } = await supabase
       .from('bot_listings')
       .delete({ count: 'exact' })
       .lt('created_at', onSaatOnce);
 
-    if (error) console.error('⚠️ Otomatik silme hatası:', error.message);
-    else console.log(`🧹 Otomatik Temizlik: 10 saatten eski ilanlar silindi. (${count || 0} kayıt)`);
+    if (count) console.log(`🧹 Otomatik Temizlik: ${count} eski ilan silindi.`);
   } catch (err) {
     console.error('⚠️ Temizlik hatası:', err.message);
   }
@@ -489,15 +382,6 @@ async function eskiIlanlariTemizle() {
 async function botuBaslat() {
   eskiIlanlariTemizle();
   setInterval(eskiIlanlariTemizle, 60 * 60 * 1000);
-
-  setInterval(() => {
-    const simdi = Date.now();
-    for (const [hash, zam] of mesajEngelleri.entries()) {
-      if (simdi - zam >= MESAJ_ENGEL_SURESI_MS) {
-        mesajEngelleri.delete(hash);
-      }
-    }
-  }, 60 * 60 * 1000);
 
   const { state, saveCreds } = await useMultiFileAuthState('auth_info');
   const { version } = await fetchLatestBaileysVersion();
@@ -517,10 +401,7 @@ async function botuBaslat() {
         const temizTel = PHONE_NUMBER.replace(/[^0-9]/g, '');
         const code = await sock.requestPairingCode(temizTel);
         currentPairingCode = code?.match(/.{1,4}/g)?.join("-") || code;
-        
-        console.log('\n==================================================');
-        console.log(`👉 EŞLEŞTİRME KODUNUZ: ${currentPairingCode}`);
-        console.log('==================================================\n');
+        console.log(`\n👉 EŞLEŞTİRME KODUNUZ: ${currentPairingCode}\n`);
       } catch (err) {
         console.error('⚠️ Pairing Code üretilemedi:', err.message);
       }
@@ -536,9 +417,7 @@ async function botuBaslat() {
     if (connection === 'open') {
       qrDataURL = null;
       currentPairingCode = null;
-      console.log('\n==================================================');
-      console.log('✅ WHATSAPP BOTU ANINDA BAĞLANDI VE CANLI DİNLİYOR!');
-      console.log('==================================================\n');
+      console.log('✅ NAKLİYE CEPTE BOTU BAĞLANDI! İLANLAR SIFIR KAYIP İLE DİNLENİYOR.');
     }
     
     if (connection === 'close') {
@@ -546,7 +425,6 @@ async function botuBaslat() {
       if (statusCode !== DisconnectReason.loggedOut) {
         setTimeout(botuBaslat, 3000);
       } else {
-        console.log('❌ Oturum kapatıldı.');
         if (fs.existsSync(AUTH_DIR)) fs.rmSync(AUTH_DIR, { recursive: true, force: true });
       }
     }
@@ -559,58 +437,48 @@ async function botuBaslat() {
     for (const msg of m.messages) {
       if (!msg || !msg.message || msg.key.fromMe || !msg.key.remoteJid?.endsWith('@g.us')) continue;
 
-      const mesajMetni = mesajMetniniCikar(msg.message);
+      const hamMesaj = mesajMetniniCikar(msg.message);
+      const ilanlar = cokluIlanlariAyristir(hamMesaj);
 
-      if (spamMi(mesajMetni)) continue;
+      if (ilanlar.length === 0) continue;
 
-      const veriler = gelismisMesajAyristir(mesajMetni);
+      const supabaseEklenecekler = [];
 
-      if (!veriler.kalkis_ili && !veriler.kalkis_ilcesi) {
-        console.log('🚮 Filtrelendi (Lokasyonsuz Mesaj):', mesajMetni.substring(0, 40).replace(/\n/g, ' '));
-        continue;
-      }
+      for (const ilan of ilanlar) {
+        if (mukerrerIlanMi(ilan.nereden, ilan.nereye, ilan.detay, ilan.telefon)) {
+          continue;
+        }
 
-      if (mukerrerIlanMi(mesajMetni, veriler.telefon, veriler.nereden, veriler.nereye)) {
-        console.log('⏳ Mükerrer İlan atlandı.');
-        continue;
-      }
+        console.log(`⚡ [YENİ İLAN] ${ilan.nereden} ➡️ ${ilan.nereye} | ${ilan.arac_tipi}`);
 
-      console.log('📩 Yeni İlan Parse Edildi: ' + mesajMetni.substring(0, 40).replace(/\n/g, ' ') + '...');
+        supabaseEklenecekler.push({
+          from_city: ilan.nereden,
+          to_city: ilan.nereye,
+          cargo_detail: ilan.detay,
+          vehicle_type: ilan.arac_tipi,
+          company_name: 'WhatsApp Lojistik Akışı'
+        });
 
-      const telegramMesaj = 
+        const telegramMesaj = 
 `📦 <b>YENİ NAKLİYE İLANI</b>
 
-📍 <b>Rota:</b> ${veriler.nereden || 'Belirtilmedi'} ➡️ ${veriler.nereye || 'Belirtilmedi'}
-📝 <b>İlan Detayı:</b>
-${htmlTemizle(veriler.ham_mesaj)}
-
-🚛 <b>Araç Tipi:</b> ${veriler.arac_tipi}
-📞 <b>İletişim:</b> ${veriler.telefon || 'İlan metnini inceleyin'}
+📍 <b>Rota:</b> ${ilan.nereden} ➡️ ${ilan.nereye}
+📝 <b>Yük / Detay:</b> ${htmlTemizle(ilan.detay)}
+🚛 <b>Araç Tipi:</b> ${ilan.arac_tipi}
+📞 <b>İletişim:</b> ${ilan.telefon}
 
 ───────────────
 📲 <i>Nakliye Cepte canlı yük akışı</i>`;
 
-      // SUPABASE'E DÜZGÜN TABLO VE SÜTUNLAR İLE KAYIT:
-      const supabaseKayit = supabase
-        .from('bot_listings')
-        .insert([
-          {
-            from_city: veriler.nereden || 'Belirtilmedi',
-            to_city: veriler.nereye || 'Belirtilmedi',
-            cargo_detail: veriler.ham_mesaj,
-            vehicle_type: veriler.arac_tipi,
-            company_name: 'WhatsApp Lojistik Akışı'
-          }
-        ])
-        .then(({ error }) => {
-          if (error) console.error('❌ Supabase Kayıt Hatası:', error.message);
-          else console.log('⚡ İlan Supabase bot_listings tablosuna kaydedildi!');
-        })
-        .catch(err => console.error('❌ Beklenmeyen Supabase Hatası:', err.message));
+        telegramaGonder(telegramMesaj);
+      }
 
-      const telegramGonderim = telegramaGonder(telegramMesaj);
-
-      await Promise.allSettled([supabaseKayit, telegramGonderim]);
+      // Supabase'e Toplu Kayıt (Batch Insert)
+      if (supabaseEklenecekler.length > 0) {
+        const { error } = await supabase.from('bot_listings').insert(supabaseEklenecekler);
+        if (error) console.error('❌ Supabase Kayıt Hatası:', error.message);
+        else console.log(`🚀 ${supabaseEklenecekler.length} adet ilan Supabase'e kaydedildi!`);
+      }
     }
   });
 }
