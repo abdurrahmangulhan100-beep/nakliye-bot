@@ -129,12 +129,15 @@ function metniNormalizeEt(text) {
     .trim();
 }
 
-// --- 5. LOKASYON KÜTÜPHANESİ ---
+// --- 5. LOKASYON KÜTÜPHANESİ VE GELİŞMİŞ REGEX ---
 const KISALTMALAR = {
   'kny': { il: 'Konya' }, 'ist': { il: 'İstanbul' }, 'izmir': { il: 'İzmir' },
-  'ank': { il: 'Ankara' }, 'adana': { il: 'Adana' }, 'antep': { il: 'Gaziantep' },
-  'g.antep': { il: 'Gaziantep' }, 'maras': { il: 'Kahramanmaraş' }, 'k.maras': { il: 'Kahramanmaraş' },
-  'urfa': { il: 'Şanlıurfa' }, 's.urfa': { il: 'Şanlıurfa' }, 'egl': { il: 'Konya', ilce: 'Ereğli' },
+  'ank': { il: 'Ankara' }, 'adana': { il: 'Adana' }, 
+  'antep': { il: 'Gaziantep' }, 'g antep': { il: 'Gaziantep' }, 'gantep': { il: 'Gaziantep' },
+  'maras': { il: 'Kahramanmaraş' }, 'k maras': { il: 'Kahramanmaraş' }, 'kmaras': { il: 'Kahramanmaraş' },
+  'urfa': { il: 'Şanlıurfa' }, 's urfa': { il: 'Şanlıurfa' }, 'surfa': { il: 'Şanlıurfa' },
+  'd bakir': { il: 'Diyarbakır' }, 'dbakir': { il: 'Diyarbakır' }, 'diyarbekir': { il: 'Diyarbakır' },
+  'egl': { il: 'Konya', ilce: 'Ereğli' },
   'gebze': { il: 'Kocaeli', ilce: 'Gebze' }, 'corlu': { il: 'Tekirdağ', ilce: 'Çorlu' },
   'iskenderun': { il: 'Hatay', ilce: 'İskenderun' }, 'inegol': { il: 'Bursa', ilce: 'İnegöl' },
   'fetiye': { il: 'Muğla', ilce: 'Fethiye' }, 'fethiye': { il: 'Muğla', ilce: 'Fethiye' }
@@ -169,20 +172,24 @@ const ILLER = [
   "Kırıkkale", "Batman", "Şırnak", "Bartın", "Ardahan", "Iğdır", "Yalova", "Karabük", "Kilis", "Osmaniye", "Düzce"
 ];
 
+// Türkçe yön/durum eklerini yakalayacak regex şablonu (dan, den, a, e, ya, ye, in, un vb.)
+const EK_REGEX = `(?:dan|den|tan|ten|a|e|ya|ye|in|un|i|u|da|de|ta|te)?`;
+
+// İlleri ve kısaltmaları normalize ederek derliyoruz.
 const PRECOMPILED_KISALTMALAR = Object.entries(KISALTMALAR).map(([kisaltma, bilgi]) => ({
-  regex: new RegExp(`\\b${kisaltma}\\b`, 'i'),
+  regex: new RegExp(`\\b${metniNormalizeEt(kisaltma)}${EK_REGEX}\\b`, 'i'),
   il: bilgi.il,
   ilce: bilgi.ilce || null
 }));
 
 const PRECOMPILED_ILCE_IL = Object.entries(ILCE_IL_HARITASI).map(([ilce, bagliIl]) => ({
-  regex: new RegExp(`\\b${ilce}\\b`, 'i'),
+  regex: new RegExp(`\\b${metniNormalizeEt(ilce)}${EK_REGEX}\\b`, 'i'),
   ilce: ilce.charAt(0).toUpperCase() + ilce.slice(1),
   il: bagliIl
 }));
 
 const PRECOMPILED_ILLER = ILLER.map(il => ({
-  regex: new RegExp(`\\b${il}\\b`, 'i'),
+  regex: new RegExp(`\\b${metniNormalizeEt(il)}${EK_REGEX}\\b`, 'i'),
   il: il
 }));
 
@@ -224,28 +231,29 @@ function aracTipiTespit(metin) {
 
 function satirdanLokasyonlariBul(satir) {
   const tespitEdilenler = [];
+  const temizSatir = metniNormalizeEt(satir); // Tespiti normalize edilmiş satırda yapıyoruz
 
   PRECOMPILED_KISALTMALAR.forEach(item => {
-    const m = satir.match(item.regex);
+    const m = temizSatir.match(item.regex);
     if (m) tespitEdilenler.push({ il: item.il, ilce: item.ilce, index: m.index });
   });
 
   PRECOMPILED_ILCE_IL.forEach(item => {
-    const m = satir.match(item.regex);
+    const m = temizSatir.match(item.regex);
     if (m) tespitEdilenler.push({ il: item.il, ilce: item.ilce, index: m.index });
   });
 
   PRECOMPILED_ILLER.forEach(item => {
-    const m = satir.match(item.regex);
+    const m = temizSatir.match(item.regex);
     if (m) tespitEdilenler.push({ il: item.il, ilce: null, index: m.index });
   });
 
   tespitEdilenler.sort((a, b) => a.index - b.index);
 
-  // Çakışan lokasyonları temizle
   const cakisilmayanlar = [];
   tespitEdilenler.forEach(item => {
-    if (!cakisilmayanlar.some(c => Math.abs(c.index - item.index) < 3)) {
+    // Aynı lokasyonun hem ilçe kısaltması hem de il olarak iki defa eklenmesini engeller.
+    if (!cakisilmayanlar.some(c => Math.abs(c.index - item.index) < 5 || (c.il === item.il && c.ilce === item.ilce))) {
       cakisilmayanlar.push(item);
     }
   });
@@ -256,7 +264,6 @@ function satirdanLokasyonlariBul(satir) {
 function cokluIlanlariAyristir(hamMesaj) {
   if (genelSpamMi(hamMesaj)) return [];
 
-  // Genel Telefon Numarası
   const geneltelEsllesmeler = hamMesaj.match(TEL_REGEX);
   let genelTelefon = null;
   if (geneltelEsllesmeler && geneltelEsllesmeler.length > 0) {
@@ -269,49 +276,56 @@ function cokluIlanlariAyristir(hamMesaj) {
   let ortakKalkisIl = null;
   let ortakKalkisIlce = null;
 
-  // Başlıkta "AYVALIK YÜKLEMELİ" veya "POLATLI YÜKLEME" var mı?
+  // Başlıkta kalkış noktası tespiti
   for (const satir of satirlar.slice(0, 3)) {
-    if (/yukleme|yuklemeli|cikisli|kalkis/i.test(satir)) {
-      const loks = satirdanLokasyonlariBul(satir);
-      if (loks.length > 0) {
-        ortakKalkisIl = loks[0].il;
-        ortakKalkisIlce = loks[0].ilce;
-        break;
-      }
+    const loks = satirdanLokasyonlariBul(satir);
+    if (loks.length > 0 && (/yukleme|yuklemeli|cikisli|kalkis|aranir|lazim/i.test(satir) || loks.length === 1)) {
+      ortakKalkisIl = loks[0].il;
+      ortakKalkisIlce = loks[0].ilce;
+      break;
     }
   }
 
   for (const satir of satirlar) {
-    // Telefon numarası veya başlık satırlarını atla
-    if (/^\d+$/.test(satir.replace(/\s+/g, '')) || /lojistik|nakliye|tel|iletisim/i.test(satir) && satir.length < 35) {
+    // Sadece telefon numarasından ibaret satırları atla
+    if (/^\d+$/.test(satir.replace(/\s+/g, ''))) {
       continue;
     }
 
     const lokasyonlar = satirdanLokasyonlariBul(satir);
     const satirTel = (satir.match(TEL_REGEX) || [])[0];
     const telefon = satirTel ? satirTel.replace(/\s+/g, '').replace(/\+90/, '0') : genelTelefon;
-    const aracTipi = aracTipiTespit(satir);
+    // Satırda araç yoksa genel mesaja bakarak kurtar
+    const aracTipi = aracTipiTespit(satir) !== 'Belirtilmedi' ? aracTipiTespit(satir) : aracTipiTespit(hamMesaj);
 
     let kalkis_ili = null, kalkis_ilcesi = null;
     let varis_ili = null, varis_ilcesi = null;
 
     if (lokasyonlar.length >= 2) {
-      // Satırda hem kalkış hem varış var (Örn: "NAZİLLİ ADANA 1.TON PARÇA")
       kalkis_ili = lokasyonlar[0].il;
       kalkis_ilcesi = lokasyonlar[0].ilce;
-      varis_ili = lokasyonlar[1].il;
-      varis_ilcesi = lokasyonlar[1].ilce;
-    } else if (lokasyonlar.length === 1 && ortakKalkisIl) {
-      // Satırda tek şehir var ve başlıkta ortak kalkış var (Örn: "İSTANBUL 13.60 TIR")
-      kalkis_ili = ortakKalkisIl;
-      kalkis_ilcesi = ortakKalkisIlce;
-      varis_ili = lokasyonlar[0].il;
-      varis_ilcesi = lokasyonlar[0].ilce;
+      
+      // Aynı satırda birden fazla varış ili varsa birleştir (Örn: Mardin, Ceylanpınar, Diyarbakır)
+      const varisNoktalari = lokasyonlar.slice(1).map(l => l.ilce ? `${l.il} / ${l.ilce}` : l.il);
+      varis_ili = varisNoktalari.join(', '); 
+      
+    } else if (lokasyonlar.length === 1) {
+      if (ortakKalkisIl && ortakKalkisIl !== lokasyonlar[0].il) {
+        kalkis_ili = ortakKalkisIl;
+        kalkis_ilcesi = ortakKalkisIlce;
+        varis_ili = lokasyonlar[0].il;
+        varis_ilcesi = lokasyonlar[0].ilce;
+      } else {
+        continue; // Sadece tek bir şehir var ve ortak bir kalkış belirlenemedi.
+      }
     }
 
     if (kalkis_ili) {
       const nereden = kalkis_ilcesi ? `${kalkis_ili} / ${kalkis_ilcesi}` : kalkis_ili;
       const nereye = varis_ilcesi ? `${varis_ili} / ${varis_ilcesi}` : (varis_ili || 'Belirtilmedi');
+      
+      // Satır çok kısaysa eksik bilgi var demektir, orijinal mesajın özetini detay olarak kaydet
+      const detayMetni = satir.length > 10 ? satir : hamMesaj.replace(/\n/g, ' ').substring(0, 150);
 
       bulunanIlanlar.push({
         kalkis_ili,
@@ -320,7 +334,7 @@ function cokluIlanlariAyristir(hamMesaj) {
         nereye,
         arac_tipi: aracTipi,
         telefon: telefon || 'İlan metnini inceleyin',
-        detay: satir
+        detay: detayMetni
       });
     }
   }
