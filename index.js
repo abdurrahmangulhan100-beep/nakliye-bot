@@ -69,7 +69,9 @@ const CONFIG = {
   BOS_ARAC_ILANLARINI_ATLA: boolEnv(env.BOS_ARAC_ILANLARINI_ATLA, false),
   TEK_SEHIRLI_ILAN_KABUL: boolEnv(env.TEK_SEHIRLI_ILAN_KABUL, true),
   GONDERICI_NUMARASINI_KULLAN: boolEnv(env.GONDERICI_NUMARASINI_KULLAN, false),
-  ENGELLI_GRUPLAR: (env.ENGELLI_GRUPLAR || '').split(',').map(s => metniNormalizeEt(s)).filter(Boolean)
+  // Varsayılan engelli gruplar (adın bir parçası yeterli; harf/noktalama farkı önemli değil).
+  // Ek grup engellemek için host panelindeki ENGELLI_GRUPLAR değişkenine virgülle ekleyebilirsin.
+  ENGELLI_GRUPLAR: ['ilgin mot tas kopp', ...(env.ENGELLI_GRUPLAR || '').split(',')].map(s => metniNormalizeEt(s)).filter(Boolean)
 };
 
 const durum = {
