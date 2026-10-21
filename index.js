@@ -54,7 +54,7 @@ const CONFIG = {
   TELEGRAM_BOT_TOKEN: env.TELEGRAM_BOT_TOKEN || '8624611315:AAHnYXg9RaaWjumP6jeCBzogVNYe_XQ13xc',
   TELEGRAM_KANAL_ID: env.TELEGRAM_KANAL_ID || '-1003776147836',
   TELEGRAM_ARALIK_MS: sayiEnv(env.TELEGRAM_ARALIK_MS, 3100), // kanal limiti ≈ 20 mesaj/dk
-  TELEGRAM_KUYRUK_MAX: 300,
+  TELEGRAM_KUYRUK_MAX: 2000,
 
   SUPABASE_URL: env.SUPABASE_URL || 'https://tlnkimstwtqkbhsgdoql.supabase.co',
   SUPABASE_KEY: env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRsbmtpbXN0d3Rxa2Joc2dkb3FsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY4ODI2OTYsImV4cCI6MjEwMjQ1ODY5Nn0.s5RYB22tlCxkUKuI3-cg7NETISlyL7zdEqjUAYyHq0s',
@@ -63,12 +63,15 @@ const CONFIG = {
 
   ILAN_OMRU_SAAT: sayiEnv(env.ILAN_OMRU_SAAT, 10),
   MUKERRER_SAAT: sayiEnv(env.MUKERRER_SAAT, 6),
-  MAX_MESAJ_YASI_DK: sayiEnv(env.MAX_MESAJ_YASI_DK, 30),
-  MAX_ILAN_PER_MESAJ: 15,
+  MAX_MESAJ_YASI_DK: sayiEnv(env.MAX_MESAJ_YASI_DK, 120), // bot yeniden başlayınca kaçan mesajlar için geniş tutuldu
+  MAX_ILAN_PER_MESAJ: 30,
 
   BOS_ARAC_ILANLARINI_ATLA: boolEnv(env.BOS_ARAC_ILANLARINI_ATLA, false),
   TEK_SEHIRLI_ILAN_KABUL: boolEnv(env.TEK_SEHIRLI_ILAN_KABUL, true),
   GONDERICI_NUMARASINI_KULLAN: boolEnv(env.GONDERICI_NUMARASINI_KULLAN, false),
+  ROTASIZ_ILAN_KABUL: boolEnv(env.ROTASIZ_ILAN_KABUL, true), // şehir tanınmasa da telefon + ilan sinyali varsa yayınla
+  RET_LOG: boolEnv(env.RET_LOG, true),                       // telefon içeren ama ilan sayılmayan mesajları logla
+  KANAL_JIDLERI: (env.KANAL_JIDLERI || '').split(',').map(x => x.trim()).filter(Boolean), // 120363...@newsletter
   // Varsayılan engelli gruplar (adın bir parçası yeterli; harf/noktalama farkı önemli değil).
   // Ek grup engellemek için host panelindeki ENGELLI_GRUPLAR değişkenine virgülle ekleyebilirsin.
   ENGELLI_GRUPLAR: ['ilgin mot tas kopp', ...(env.ENGELLI_GRUPLAR || '').split(',')].map(s => metniNormalizeEt(s)).filter(Boolean)
@@ -89,6 +92,9 @@ const istatistik = {
 };
 
 const bekle = (ms) => new Promise(r => setTimeout(r, ms));
+
+const retSayac = {};
+const grupIstatistik = new Map(); // jid → { mesaj, ilan }
 
 // ════════════════════════════════════════════════════════════════
 // 2. METİN YARDIMCILARI
@@ -365,6 +371,7 @@ function satirdanLokasyonlariBul(satir) {
 // ════════════════════════════════════════════════════════════════
 // 5. SPAM / İLAN SİNYALİ
 // ════════════════════════════════════════════════════════════════
+const URL_SILME_REGEX = /(?:https?:\/\/|www\.)\S+|chat\.whatsapp\.com\/\S*|\bt\.me\/\S*|\bbit\.ly\/\S*/gi;
 const LINK_REGEX = /https?:\/\/|www\.|chat\.whatsapp\.com|\bt\.me\/|\bbit\.ly\//i;
 
 // Normalize edilmiş metinde çalışır. Hepsi kelime sınırlı ve dar aralıklı: "evrak … taşımacılık" gibi
@@ -476,13 +483,13 @@ function detayOlustur(satir, baslikSatiri) {
 }
 
 function ilanNesnesi({ tur, kalkis, hedefler, arac, telefon, telefonKaynagi, detay }) {
-  const nereden = yerMetni(kalkis);
+  const nereden = kalkis ? yerMetni(kalkis) : 'Belirtilmedi';
   const nereye = hedefler.length ? hedefler.map(yerMetni).join(', ') : 'Belirtilmedi';
   return {
     tur,
     nereden,
     nereye,
-    kalkis_il: kalkis.il,
+    kalkis_il: kalkis ? kalkis.il : null,
     varis_iller: [...new Set(hedefler.map(h => h.il))],
     arac_tipi: arac,
     telefon_ham: telefon || null,
@@ -493,10 +500,24 @@ function ilanNesnesi({ tur, kalkis, hedefler, arac, telefon, telefonKaynagi, det
 }
 
 function cokluIlanlariAyristir(hamMesaj, secenekler = {}) {
-  const metin = waLinkleriniNumarayaCevir(hamMesaj);
-  if (genelSpamMi(metin)) return [];
+  const ret = (neden) => { if (secenekler.retKaydi) secenekler.retKaydi(neden); return []; };
 
-  const satirlar = metin.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  const cevrilmis = waLinkleriniNumarayaCevir(hamMesaj);
+  if (!cevrilmis || cevrilmis.length < 8) return ret('cok_kisa');
+  if (cevrilmis.length > 5000) return ret('cok_uzun');
+
+  // Linkler artık mesajı çöpe atmaz; sadece metinden silinir.
+  const linksiz = cevrilmis.replace(URL_SILME_REGEX, ' ');
+  const tumSatirlar = linksiz.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+
+  // Spam kalıpları SATIR bazında uygulanır: spam satırı atılır, kalan ilan satırları korunur.
+  // Mesajda spam izi varsa, en az 2 net ilan çıkmadıkça mesaj kabul edilmez (tek satırlık iş ilanı vb. sızmasın).
+  const spamSatir = (s) => { const n = metniNormalizeEt(s); return SPAM_REGEX.some(r => r.test(n)); };
+  const tamNorm = metniNormalizeEt(linksiz);
+  const spamVar = SPAM_REGEX.some(r => r.test(tamNorm)) || tumSatirlar.some(spamSatir);
+  const satirlar = spamVar ? tumSatirlar.filter(s => !spamSatir(s)) : tumSatirlar;
+  if (!satirlar.length) return ret('spam');
+  const metin = satirlar.join('\n');
   const mesajNorm = metniNormalizeEt(metin);
   const satirTelefonlari = satirlar.map(telefonlariBul);
   const tumTelefonlar = satirTelefonlari.flat();
@@ -505,7 +526,7 @@ function cokluIlanlariAyristir(hamMesaj, secenekler = {}) {
 
   const gondericiTel = secenekler.gondericiTelefon || null;
   const sinyalVar = tumTelefonlar.length > 0 || farkliAraclar.length > 0 || ILAN_SINYAL_REGEX.test(mesajNorm);
-  if (!sinyalVar) return [];
+  if (!sinyalVar) return ret('sinyal_yok');
 
   const mesajTuru = ilanTuruTespit(mesajNorm);
 
@@ -574,6 +595,26 @@ function cokluIlanlariAyristir(hamMesaj, secenekler = {}) {
     }
   }
 
+  // Rotası çözülemeyen ama telefon + ilan sinyali taşıyan mesajlar da kaçmasın
+  if (!bulunanlar.length && CONFIG.ROTASIZ_ILAN_KABUL) {
+    const telefon = tumTelefonlar[0] || gondericiTel;
+    const sinyal = farkliAraclar.length > 0 || ILAN_SINYAL_REGEX.test(mesajNorm);
+    if (telefon && sinyal) {
+      const loks = satirlar.flatMap(satirdanLokasyonlariBul);
+      bulunanlar.push(ilanNesnesi({
+        tur: mesajTuru || 'YUK',
+        kalkis: ortak || loks[0] || null,
+        hedefler: [],
+        arac: mesajArac,
+        telefon,
+        telefonKaynagi: tumTelefonlar.length ? 'ilan' : 'gonderici',
+        detay: detayOlustur(satirlar.join(' '), null)
+      }));
+    }
+  }
+
+  if (spamVar && bulunanlar.length < 2) return ret('spam_is_ilani');
+  if (!bulunanlar.length) return ret(tumTelefonlar.length ? 'rota_yok' : 'telefon_yok');
   return bulunanlar;
 }
 
@@ -588,7 +629,7 @@ function mukerrerIlanMi(ilan) {
   // Telefon biliniyorsa rota+araç+telefon; bilinmiyorsa rota+detay. Aynı ilan farklı gruplarda biraz değişik
   // yazılsa bile telefon aynı olduğu için yakalanır.
   const anahtar = ilan.telefon_ham
-    ? `${ilan.tur}|${ilan.nereden}|${ilan.nereye}|${ilan.arac_tipi}|${ilan.telefon_ham}`
+    ? `${ilan.tur}|${ilan.nereden}|${ilan.nereye}|${ilan.arac_tipi}|${ilan.telefon_ham}${ilan.nereden === 'Belirtilmedi' ? '|' + ilan.detay : ''}`
     : `${ilan.tur}|${ilan.nereden}|${ilan.nereye}|${ilan.detay}`;
   const hash = crypto.createHash('md5').update(metniNormalizeEt(anahtar)).digest('hex');
 
@@ -614,7 +655,7 @@ let telegramCalisiyor = false;
 let telegramYapilandirmaUyarildi = false;
 
 function hashtagUret(ilan) {
-  const iller = [ilan.kalkis_il, ...ilan.varis_iller];
+  const iller = [ilan.kalkis_il, ...ilan.varis_iller].filter(Boolean);
   const etiketler = [...new Set(iller)]
     .map(il => il.replace(/[^\p{L}\p{N}]/gu, ''))
     .filter(Boolean)
@@ -629,7 +670,7 @@ function telegramMetniOlustur(ilan) {
   const satirlar = [
     baslik,
     '',
-    `📍 <b>Rota:</b> ${htmlTemizle(ilan.nereden)} ➡️ ${htmlTemizle(ilan.nereye)}`,
+    `📍 <b>Rota:</b> ${ilan.nereden === 'Belirtilmedi' && ilan.nereye === 'Belirtilmedi' ? 'İlan metnine bakın' : `${htmlTemizle(ilan.nereden)} ➡️ ${htmlTemizle(ilan.nereye)}`}`,
     `📝 <b>${bosArac ? 'Detay' : 'Yük / Detay'}:</b> ${htmlTemizle(ilan.detay)}`,
     `🚛 <b>Araç Tipi:</b> ${htmlTemizle(ilan.arac_tipi)}`,
     `📞 <b>İletişim:</b> ${htmlTemizle(ilan.telefon)}`
@@ -906,13 +947,63 @@ function sunucuyuBaslat() {
 // ════════════════════════════════════════════════════════════════
 const grupAdlari = new Map(); // jid → { ad, zaman }
 
+const engelliJidler = new Set();
+let grupYenilemeZamanlayici = null;
+
+function engelliAdMi(ad) {
+  const n = metniNormalizeEt(ad);
+  return !!n && CONFIG.ENGELLI_GRUPLAR.some(e => n.includes(e));
+}
+
+// Tüm grupları TEK çağrıda çeker (1245 ayrı groupMetadata sorgusu yerine) ve engelli grupların JID'ini bulur.
+async function gruplariOnbellegeAl(sock) {
+  try {
+    const tum = await sock.groupFetchAllParticipating();
+    let n = 0;
+    for (const [jid, meta] of Object.entries(tum || {})) {
+      const ad = meta?.subject || jid;
+      grupAdlari.set(jid, { ad, zaman: Date.now() });
+      if (engelliAdMi(ad)) engelliJidler.add(jid); else engelliJidler.delete(jid);
+      n++;
+    }
+    console.log(`👥 ${n} grup önbelleğe alındı | engelli grup: ${engelliJidler.size}`);
+  } catch (err) {
+    console.error('⚠️ Grup listesi alınamadı:', err.message);
+  }
+}
+
+async function kanallaraAboneOl(sock) {
+  for (const jid of CONFIG.KANAL_JIDLERI) {
+    try {
+      if (typeof sock.subscribeNewsletterUpdates !== 'function') {
+        console.warn('⚠️ Bu Baileys sürümünde kanal aboneliği fonksiyonu yok.');
+        return;
+      }
+      await sock.subscribeNewsletterUpdates(jid);
+      console.log(`📢 Kanala abone olundu: ${jid}`);
+    } catch (err) {
+      console.error(`⚠️ Kanal aboneliği başarısız (${jid}): ${err.message}`);
+    }
+  }
+}
+
+function retKaydet(neden, hamMesaj, jid) {
+  retSayac[neden] = (retSayac[neden] || 0) + 1;
+  if (!CONFIG.RET_LOG || !telefonlariBul(hamMesaj).length) return; // yalnızca telefon içerip ilan sayılmayanlar
+  const ad = grupAdlari.get(jid)?.ad || jid;
+  const metin = String(hamMesaj).replace(TEL_MOBIL_REGEX, '☎').replace(TEL_SABIT_REGEX, '☎').replace(/\s+/g, ' ');
+  console.log(`🚫 [RET:${neden}] 👥 ${kisalt(ad, 30)} | ${kisalt(metin, 160)}`);
+}
+
 async function grupAdiGetir(sock, jid) {
+  if (jid.endsWith('@newsletter')) return `Kanal ${jid}`;
   const kayit = grupAdlari.get(jid);
   if (kayit && Date.now() - kayit.zaman < 12 * 3600 * 1000) return kayit.ad;
   try {
     const meta = await sock.groupMetadata(jid);
     const ad = meta?.subject || jid;
     grupAdlari.set(jid, { ad, zaman: Date.now() });
+    if (engelliAdMi(ad)) engelliJidler.add(jid);
     return ad;
   } catch {
     // başarısız olursa ~1 saat sonra tekrar dene (sürekli sorgu atma)
@@ -935,7 +1026,9 @@ function gondericiTelefonu(msg) {
 }
 
 async function mesajiIsle(sock, msg) {
-  if (!msg?.message || msg.key?.fromMe || !msg.key?.remoteJid?.endsWith('@g.us')) return;
+  const jid = msg?.key?.remoteJid || '';
+  if (!msg?.message || msg.key?.fromMe || !(jid.endsWith('@g.us') || jid.endsWith('@newsletter'))) return;
+  if (engelliJidler.has(jid)) return;
 
   // Aynı mesajın iki kez gelmesine karşı
   const mesajKimligi = `${msg.key.remoteJid}:${msg.key.id}`;
@@ -952,16 +1045,20 @@ async function mesajiIsle(sock, msg) {
   const hamMesaj = mesajMetniniCikar(msg.message);
   if (!hamMesaj) return;
 
-  if (CONFIG.ENGELLI_GRUPLAR.length) {
-    const grupAdi = metniNormalizeEt(await grupAdiGetir(sock, msg.key.remoteJid));
-    if (CONFIG.ENGELLI_GRUPLAR.some(e => grupAdi.includes(e))) return;
+  if (CONFIG.ENGELLI_GRUPLAR.length && !jid.endsWith('@newsletter')) {
+    const ad = await grupAdiGetir(sock, jid);
+    if (engelliAdMi(ad)) { engelliJidler.add(jid); return; }
   }
 
   istatistik.mesaj++;
   durum.sonMesajZamani = Date.now();
+  const gi = grupIstatistik.get(jid) || { mesaj: 0, ilan: 0 };
+  gi.mesaj++;
+  grupIstatistik.set(jid, gi);
 
   const ilanlar = cokluIlanlariAyristir(hamMesaj, {
-    gondericiTelefon: CONFIG.GONDERICI_NUMARASINI_KULLAN ? gondericiTelefonu(msg) : null
+    gondericiTelefon: CONFIG.GONDERICI_NUMARASINI_KULLAN ? gondericiTelefonu(msg) : null,
+    retKaydi: (neden) => retKaydet(neden, hamMesaj, jid)
   });
   if (!ilanlar.length) return;
 
@@ -977,6 +1074,7 @@ async function mesajiIsle(sock, msg) {
     }
 
     istatistik.ilanBulunan++;
+    gi.ilan++;
     grupAdi = grupAdi || (await grupAdiGetir(sock, msg.key.remoteJid));
     console.log(`⚡ [${ilan.tur === 'ARAC' ? 'BOŞ ARAÇ' : 'YENİ İLAN'}] ${ilan.nereden} ➡️ ${ilan.nereye} | ${ilan.arac_tipi} | ${ilan.telefon} | 👥 ${grupAdi}`);
 
@@ -1057,6 +1155,10 @@ async function baglan() {
         durum.eslestirmeKodu = null;
         yenidenDeneme = 0;
         console.log('✅ NAKLİYE CEPTE BOTU BAĞLANDI! İLANLAR DİNLENİYOR.');
+        gruplariOnbellegeAl(sock);
+        clearInterval(grupYenilemeZamanlayici);
+        grupYenilemeZamanlayici = setInterval(() => gruplariOnbellegeAl(sock), 6 * 3600 * 1000);
+        kanallaraAboneOl(sock);
       }
 
       if (connection === 'close') {
@@ -1128,6 +1230,11 @@ function main() {
   setInterval(() => {
     console.log(`📊 Saatlik özet → mesaj: ${istatistik.mesaj}, ilan: ${istatistik.ilanBulunan}, mükerrer: ${istatistik.mukerrer}, ` +
       `telegram: ${istatistik.telegramGonderilen} (hata ${istatistik.telegramHata}), supabase: ${istatistik.supabaseKaydedilen} (hata ${istatistik.supabaseHata})`);
+    const top = [...grupIstatistik.entries()]
+      .sort((a, b) => b[1].ilan - a[1].ilan || b[1].mesaj - a[1].mesaj).slice(0, 10)
+      .map(([j, g]) => `${kisalt(grupAdlari.get(j)?.ad || j, 28)}: ${g.ilan}/${g.mesaj}`).join(' | ');
+    console.log(`📈 Mesaj atan grup: ${grupIstatistik.size}/${grupAdlari.size} | telegram düşen: ${istatistik.telegramDusen} | ret: ${JSON.stringify(retSayac)}`);
+    console.log(`🏆 En çok ilan (ilan/mesaj): ${top}`);
   }, 60 * 60 * 1000);
 
   baglan();
