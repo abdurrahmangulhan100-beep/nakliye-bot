@@ -65,6 +65,7 @@ const CONFIG = {
   MUKERRER_SAAT: sayiEnv(env.MUKERRER_SAAT, 6),
   MAX_MESAJ_YASI_DK: sayiEnv(env.MAX_MESAJ_YASI_DK, 120), // bot yeniden başlayınca kaçan mesajlar için geniş tutuldu
   MAX_ILAN_PER_MESAJ: 30,
+  MAX_VARIS_PER_ILAN: 10, // tek ilanda en fazla kaç varış şehri gösterilsin
 
   BOS_ARAC_ILANLARINI_ATLA: boolEnv(env.BOS_ARAC_ILANLARINI_ATLA, false),
   TEK_SEHIRLI_ILAN_KABUL: boolEnv(env.TEK_SEHIRLI_ILAN_KABUL, true),
@@ -516,8 +517,14 @@ const DANGLING_SATIR_REGEX = /^(?:irtibat|iletisim|tel|telefon|bilgi icin|bilgi|
 const IMZA_FIRMA_REGEX = /\b(?:nakliyat|nakliye|nakliyecilik|lojistik|tasimacilik|transport|ticaret|ltd|sti)\b/;
 
 // Bir satırı detaya uygun hale getirir; imza / "irtibat" artığı / boş satırları '' döndürür.
+// Emoji, keycap (4️⃣), değişim seçici ve görünmez karakterleri siler; site fontu bunları kutucuk olarak gösteriyordu.
+const EMOJI_REGEX = /[\p{Extended_Pictographic}\u20E3\uFE0E\uFE0F\u200D\u200B\u200E\u200F\u2060\uFEFF]/gu;
+function emojiTemizle(metin) {
+  return String(metin || '').replace(EMOJI_REGEX, '').replace(/\s{2,}/g, ' ').trim();
+}
+
 function detayTemizSatir(satir, zorunlu) {
-  const t = telefonlariTemizle(olculeriDuzelt(satir)).replace(/\s{2,}/g, ' ').trim();
+  const t = emojiTemizle(telefonlariTemizle(olculeriDuzelt(satir)));
   const n = metniNormalizeEt(t);
   if (!n) return '';
   if (zorunlu) return t;
@@ -534,7 +541,7 @@ function detayBirlestir(ogeler) {
     const t = detayTemizSatir(s, zorunlu);
     if (t && !parcalar.includes(t)) parcalar.push(t);
   }
-  return kisalt(parcalar.join(' • '), 400);
+  return kisalt(parcalar.join(' • '), 500);
 }
 
 // Site, metinde geçmeyen şehri alanlardan siler ve "Ç.KALE", "İst.Avrupa" gibi kısaltmaları tanımaz.
@@ -625,7 +632,7 @@ function bolumIlanlari(idxler, b) {
     .filter(({ s }) => detayTemizSatir(s, false))
     .slice(0, 2);
 
-  return ilanSatirlari.map(({ k, rota }) => {
+  const adaylar = ilanSatirlari.map(({ k, rota }) => {
     const gIdx = idxler[k];
     const satirNorm = metniNormalizeEt(yerel[k]);
     const satirTel = satirTelefonlari[gIdx][0] || null;
@@ -645,16 +652,33 @@ function bolumIlanlari(idxler, b) {
         ...ekler.map(({ s }) => ({ s, zorunlu: false }))
       ];
     }
-    return ilanNesnesi({
+    return {
       tur: ilanTuruTespit(satirNorm) || bolumTuru || mesajTuru || 'YUK',
       kalkis: rota.kalkis,
       hedefler: rota.hedefler,
       arac: satirArac !== 'Belirtilmedi' ? satirArac : bolumArac,
       telefon,
       telefonKaynagi,
-      detay: detayaRotaEkle(detayBirlestir(ogeler), rota.kalkis, rota.hedefler)
-    });
+      ogeler
+    };
   });
+
+  // Aynı çıkış ili + araç + tür + telefon: tek ilan, birden çok varış şehri ("Mersin → Erzurum, Konya, Trabzon")
+  const gruplar = new Map();
+  for (const a of adaylar) {
+    const anahtar = [a.kalkis ? a.kalkis.il : '-', a.arac, a.tur, a.telefon || '-'].join('|');
+    const g = gruplar.get(anahtar);
+    if (!g) { gruplar.set(anahtar, { ...a, hedefler: [...a.hedefler], ogeler: [...a.ogeler] }); continue; }
+    for (const h of a.hedefler) {
+      if (g.hedefler.length < CONFIG.MAX_VARIS_PER_ILAN && !g.hedefler.some(x => x.il === h.il && x.ilce === h.ilce)) g.hedefler.push(h);
+    }
+    g.ogeler.push(...a.ogeler);
+  }
+  return [...gruplar.values()].map(g => ilanNesnesi({
+    tur: g.tur, kalkis: g.kalkis, hedefler: g.hedefler, arac: g.arac,
+    telefon: g.telefon, telefonKaynagi: g.telefonKaynagi,
+    detay: detayaRotaEkle(detayBirlestir(g.ogeler), g.kalkis, g.hedefler)
+  }));
 }
 
 function cokluIlanlariAyristir(hamMesaj, secenekler = {}) {
