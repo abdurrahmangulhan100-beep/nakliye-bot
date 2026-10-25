@@ -20,15 +20,32 @@ test('"tire" (lastik) ve "bor" (madde) ilçe sanılmaz', () => {
   assert.deepEqual(rota("Konya'dan Ankara'ya lastik tire yükü var" + TEL), ['Konya -> Ankara']);
   assert.deepEqual(rota("Bor madeni yükü var Eskişehir'den Konya'ya" + TEL), ['Eskişehir -> Konya']);
 });
-test('Çoklu satır: her satır ayrı ilan', () => {
-  const r = rota("KONYA ÇIKIŞLI\nKonya Ankara tır\nKonya İzmir tır\n" + TEL);
+test('Çoklu satır: aynı çıkış + araç + telefon tek ilanda birleşir', () => {
+  const r = cokluIlanlariAyristir("KONYA ÇIKIŞLI\nKonya Ankara tır\nKonya İzmir tır\n" + TEL);
+  assert.equal(r.length, 1);
+  assert.equal(r[0].nereden, 'Konya');
+  assert.equal(r[0].nereye, 'Ankara, İzmir');
+  assert.ok(r[0].detay.includes('Ankara') && r[0].detay.includes('İzmir'));
+});
+test('Çıkışı farklı satırlar ayrı ilan kalır', () => {
+  assert.equal(rota("Konya Ankara tır\nBursa İzmir tır\n" + TEL).length, 2);
+});
+test('Aynı çıkışta araç tipi farklıysa ayrı ilan olur (araç filtresi bozulmasın)', () => {
+  const r = cokluIlanlariAyristir('Konya Ankara tır\nKonya Bursa tır\nKonya İzmir frigo\n0532 111 22 33');
   assert.equal(r.length, 2);
+  assert.deepEqual(r.map(i => i.nereye).sort(), ['Ankara, Bursa', 'İzmir']);
+});
+test('COKLU_ROTAYI_BIRLESTIR=false eski davranışı geri getirir', () => {
+  const { CONFIG } = require('./index.js');
+  CONFIG.COKLU_ROTAYI_BIRLESTIR = false;
+  try { assert.equal(cokluIlanlariAyristir("Konya Ankara tır\nKonya İzmir tır\n" + TEL).length, 2); }
+  finally { CONFIG.COKLU_ROTAYI_BIRLESTIR = true; }
 });
 test('Spam / iş ilanı elenir', () => {
   assert.deepEqual(rota('Şoför aranıyor Konya' + TEL), []);
 });
 test('Aynı mesajda telefonsuz satır telefonu en yakın satırdan alır', () => {
-  const r = cokluIlanlariAyristir('Konya Ankara tır\nKonya Bursa tır\n0532 111 22 33');
+  const r = cokluIlanlariAyristir('Konya Ankara tır\nBursa İzmir tır\n0532 111 22 33');
   assert.equal(r.length, 2);
   assert.ok(r.every(i => i.telefon_ham === '05321112233'));
 });
@@ -51,7 +68,7 @@ test('Detay kaybolmaz: Niğde-Batman patates + Yarın; 13/60 → 13.60', () => {
 });
 test('Bölümlü liste: her bölümün kendi çıkışı ve "Ç.KALE" → Çanakkale', () => {
   const m = '🛑BURDUR YÜKLER\n🔻KONYA EREĞLİ BOŞALTIR\n⚠️DAMPER 13.60 AÇIK TENTE ARAÇLAR\n-----------------------\n🛑Ç.KALE ÇAN TORBA KÖMÜR YÜKLER\n🔻AKSARAY AĞAÇÖREN BOŞALTIR\n🔻AKSARAY ESKİL BOŞALTIR\n⚠️DAMPER 13.60 AÇIK TENTE ARAÇLAR\n-----------------------\n0532 111 22 33';
-  assert.deepEqual(rota(m), ['Burdur -> Konya / Ereğli', 'Çanakkale -> Aksaray / Ağaçören', 'Çanakkale -> Aksaray / Eskil']);
+  assert.deepEqual(rota(m), ['Burdur -> Konya / Ereğli', 'Çanakkale -> Aksaray / Ağaçören, Aksaray / Eskil']);
   assert.ok(tek(m)[1].detay.includes('TORBA KÖMÜR'));
   assert.equal(tek(m)[1].arac_tipi, 'Damperli');
 });
