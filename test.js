@@ -99,3 +99,39 @@ test('Tek şehirli ilan: Konya\'dan yük var', () => {
 test('Boş araç ilanı ARAC türünde', () => {
   assert.equal(tek("Konya'dayım boşum yük arıyorum" + TEL).tur, 'ARAC');
 });
+
+// ───────── v3.1: yabancı ülke engeli, firma adı, Telegram biçimi ─────────
+test('Yabancı ülke/şehir yükleri engellenir', () => {
+  for (const m of [
+    "Konya'dan Irak'a tır lazım", "Mersin Erbil 13.60 açık tır", 'Almanya yükü var tır lazım',
+    "Duhok'a komple tır", 'Gürcistan Tiflis frigo tır', 'KKTC yükü gemi ile palet', 'Suudi Arabistan sefer tır var',
+    'ABD\'ye konteyner yükü var', 'Bursa Bulgaristan tır lazım'
+  ]) {
+    const r = ilanlariAyristir(m + TEL);
+    assert.equal(r.ret, 'yabanci', m);
+    assert.deepEqual(r.ilanlar, []);
+  }
+});
+test('Yurt içi yükler yanlışlıkla engellenmez (Habur, mısır, Bağdat Cad., İst.Avrupa, tire)', () => {
+  assert.equal(rota("Konya'dan Habur'a 13.60 açık tır lazım" + TEL), 'Konya -> Şırnak / Habur');
+  assert.equal(rota("Konya'dan Ankara'ya mısır yükü tır lazım" + TEL), 'Konya -> Ankara');
+  assert.equal(tek("Konya'dan İstanbul Bağdat Caddesi'ne palet tır lazım" + TEL).nereye, 'İstanbul');
+  assert.equal(rota("Konya'dan Ankara'ya lastik tire yükü var" + TEL), 'Konya -> Ankara');
+});
+test('Yabancı engeli kapatılabilir', () => {
+  assert.equal(ilanlariAyristir('Konya Irak tır lazım' + TEL, { yabanciEngelle: false }).ret, null);
+});
+test('Firma adı: imza satırı, "Firma:" etiketi, yoksa boş', () => {
+  const emir = tek('📍Konya Ilgın yükleme\n🚛 1 araç lazım tonu 900 TL\n✋HEMEN YÜKLER\n🇹🇷EMİRCAN LOJİSTİK\n📲 0 552 947 88 83');
+  assert.equal(emir.firma, 'Emircan Lojistik');
+  assert.equal(tek('Firma: Öz Konya Nakliyat\nKonya Ankara tır lazım' + TEL).firma, 'Öz Konya Nakliyat');
+  assert.equal(tek('Konya Ankara tır lazım' + TEL).firma, '');
+  assert.equal(tek('Konya Ankara 13.60 tır lazım ton 24 nakliye' + TEL).firma, ''); // yük satırı firma sanılmaz
+});
+test('Telegram mesajı: firma, rota, WhatsApp bağlantısı, etiketler; kullanıcı metni HTML-kaçışlı', () => {
+  const { telegramMetni } = require('./index.js');
+  const m = telegramMetni(tek('Firma: A&B Lojistik\nKonya Ankara 13.60 açık tır lazım' + TEL));
+  assert.ok(m.includes('📦 <b>YÜK İLANI</b>') && m.includes('🏢 A&amp;B Lojistik'));
+  assert.ok(m.includes('<b>Konya</b> ➡️ <b>Ankara</b>') && m.includes('https://wa.me/905321112233'));
+  assert.ok(m.includes('#Konya #Ankara'));
+});
