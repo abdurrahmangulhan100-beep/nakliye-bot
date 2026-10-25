@@ -9,7 +9,7 @@
  *   TELEGRAM_BOT_TOKEN   Telegram bot token'ı
  *   TELEGRAM_KANAL_ID    Telegram kanal/grup id'si (-100...)
  *   SUPABASE_URL         Supabase proje adresi
- *   SUPABASE_KEY         Supabase anahtarı (sunucuda service_role önerilir)
+ *   SUPABASE_SERVICE_ROLE_KEY   Supabase service_role anahtarı (SUPABASE_KEY de kabul edilir). Anon anahtar KULLANMAYIN
  *   PHONE_NUMBER         905xxxxxxxxx  (eşleştirme kodu için; boşsa QR kullanılır)
  *   PANEL_KEY            /qr?key=... sayfasının şifresi (boşsa her açılışta rastgele üretilip loga yazılır)
  *
@@ -51,13 +51,13 @@ const CONFIG = {
   PANEL_KEY: env.PANEL_KEY || crypto.randomBytes(8).toString('hex'),
   PANEL_KEY_RASTGELE: !env.PANEL_KEY,
 
-  TELEGRAM_BOT_TOKEN: env.TELEGRAM_BOT_TOKEN || '8624611315:AAHnYXg9RaaWjumP6jeCBzogVNYe_XQ13xc',
-  TELEGRAM_KANAL_ID: env.TELEGRAM_KANAL_ID || '-1003776147836',
+  TELEGRAM_BOT_TOKEN: env.TELEGRAM_BOT_TOKEN || '',
+  TELEGRAM_KANAL_ID: env.TELEGRAM_KANAL_ID || '',
   TELEGRAM_ARALIK_MS: sayiEnv(env.TELEGRAM_ARALIK_MS, 3100), // kanal limiti ≈ 20 mesaj/dk
   TELEGRAM_KUYRUK_MAX: 2000,
 
-  SUPABASE_URL: env.SUPABASE_URL || 'https://tlnkimstwtqkbhsgdoql.supabase.co',
-  SUPABASE_KEY: env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRsbmtpbXN0d3Rxa2Joc2dkb3FsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY4ODI2OTYsImV4cCI6MjEwMjQ1ODY5Nn0.s5RYB22tlCxkUKuI3-cg7NETISlyL7zdEqjUAYyHq0s',
+  SUPABASE_URL: env.SUPABASE_URL || '',
+  SUPABASE_KEY: env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_KEY || '', // sunucuda service_role kullanın (anon anahtar herkese açıktır)
   SUPABASE_TABLO: env.SUPABASE_TABLO || 'bot_listings',
   SUPABASE_TELEFON_KOLONU: env.SUPABASE_TELEFON_KOLONU || '',
 
@@ -76,6 +76,11 @@ const CONFIG = {
   // Ek grup engellemek için host panelindeki ENGELLI_GRUPLAR değişkenine virgülle ekleyebilirsin.
   ENGELLI_GRUPLAR: ['ilgin mot tas kopp', ...(env.ENGELLI_GRUPLAR || '').split(',')].map(s => metniNormalizeEt(s)).filter(Boolean)
 };
+
+// Supabase anahtarının rolünü (anon / service_role) JWT içinden okur; gizli bir şey çözmez, yalnızca uyarı içindir.
+function anahtarRolu(anahtar) {
+  try { return JSON.parse(Buffer.from(String(anahtar).split('.')[1], 'base64url').toString('utf8')).role || null; } catch { return null; }
+}
 
 const durum = {
   baglanti: 'baslatiliyor',
@@ -322,11 +327,20 @@ ILLER.forEach(il => yerEkle(il, il, null, 'tam'));
 IL_TAKMA_ADLARI.forEach(([ad, il]) => yerEkle(ad, il, null, 'tam'));
 Object.entries(ILCELER).forEach(([il, liste]) => liste.forEach(ilce => yerEkle(ilce, il, ilce, 'tam')));
 
+// Tüm Türkiye ilçeleri (web uygulamasıyla ortak liste). Yukarıdaki elle seçilmiş kayıtlar önceliklidir.
+// Sıradan kelimelerle karışan adlar ("Tire", "Bor", "Of"...) 'zayif' işaretlenir: yalnızca açık yön ekiyle kabul edilir.
+const { ILCELER_TAM, ZAYIF_YERLER } = require('./yerler');
+const ZAYIF_SET = new Set(ZAYIF_YERLER);
+Object.entries(ILCELER_TAM).forEach(([il, liste]) => liste.forEach(ilce => {
+  yerEkle(ilce, il, ilce, ZAYIF_SET.has(metniNormalizeEt(ilce)) ? 'zayif' : 'tam');
+}));
+const ZAYIF_EK = new Set(['dan', 'den', 'tan', 'ten', 'ya', 'ye']);
+
 // Tek bir derlenmiş regex: en uzun anahtar önce denenir.
 const YER_REGEX = (() => {
   const anahtarlar = [...YER_HARITASI.keys()].sort((a, b) => b.length - a.length);
   const kaynak = anahtarlar.map(a => a.replace(/ /g, '\\s')).join('|');
-  return new RegExp(`\\b(${kaynak})(${EK_TAM.join('|')})?\\b`, 'g');
+  return new RegExp(`\\b(${kaynak})(?:(${EK_TAM.join('|')})|\\s(dan|den|tan|ten))?\\b`, 'g');
 })();
 
 const yerMetni = (l) => (l.ilce ? `${l.il} / ${l.ilce}` : l.il);
@@ -341,8 +355,14 @@ function satirdanLokasyonlariBul(satir) {
   for (const m of temiz.matchAll(YER_REGEX)) {
     const kayit = YER_HARITASI.get(m[1]);
     if (!kayit) continue;
-    const ek = m[2] || '';
+    const ek = m[2] || m[3] || '';
     if (ek && kayit.ekTipi === 'kisaltma' && !EK_KISALTMA.has(ek)) continue;
+    if (kayit.ekTipi === 'zayif') {
+      // "Tire'ye", "Tireden" ya da "Sarayönü den Tire" biçimi dışında çıplak "tire" sıradan kelime sayılır
+      const onceki = ham[ham.length - 1];
+      const bitisik = onceki && onceki.rol === 'cikis' && m.index - onceki.end <= 1;
+      if (!ZAYIF_EK.has(ek) && !bitisik) continue;
+    }
     ham.push({ il: kayit.il, ilce: kayit.ilce, rol: EK_ROL[ek] || null, start: m.index, end: m.index + m[0].length });
   }
 
@@ -1232,6 +1252,13 @@ function main() {
   }
 
   sunucuyuBaslat();
+
+  // Yapılandırma denetimi: eksik/yanlış ayar sessizce çalışmayıp loga yazılsın
+  const eksik = ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_KANAL_ID', 'SUPABASE_URL', 'SUPABASE_KEY'].filter(k => !CONFIG[k]);
+  if (eksik.length) console.warn(`⚠️ Tanımsız ayarlar: ${eksik.join(', ')} (ilgili özellikler kapalı kalır)`);
+  if (CONFIG.SUPABASE_KEY && anahtarRolu(CONFIG.SUPABASE_KEY) === 'anon') {
+    console.warn('⚠️ SUPABASE anahtarı "anon" rolünde. Güvenlik kilidi (006 SQL) açıldığında kayıt ve temizlik başarısız olur; service_role anahtarını SUPABASE_SERVICE_ROLE_KEY olarak girin.');
+  }
 
   // Zamanlayıcılar BİR KEZ kurulur (eski sürümde her yeniden bağlanmada çoğalıyordu)
   eskiIlanlariTemizle();
