@@ -9,8 +9,10 @@
  *      altındaki tek yerli satırlar o çıkışın varışlarıdır. Ayraç satırı (-----) bölümü kapatır.
  *   4) İki+ yerli satır kendi başına rotadır (ilk yer çıkış, kalanlar varış).
  *   5) Her rota AYRI ilan olur (çıkış → varış), kendi satırından detay ve en yakın telefon alır.
+ *   6) Yurt dışı (ülke/şehir) geçen mesajlar reddedilir (ret: 'yabanci'); imza/"Firma:" satırından firma adı çıkarılır.
  */
 const { ILCELER_TAM, ZAYIF_YERLER } = require('./yerler');
+const { yabanciTerim } = require('./yabanci');
 
 // ───────────────────────── Metin yardımcıları ─────────────────────────
 function normalize(text) {
@@ -198,6 +200,49 @@ function satirTemizle(satir) {
     .trim();
   return t;
 }
+
+// ───────────────────────── Firma adı ─────────────────────────
+const FIRMA_KELIME = /\b(?:nakliyat|nakliye|nakliyecilik|lojistik|tasimacilik|transport|ticaret|ltd|sti|holding|otomotiv|insaat|gida|sanayi|logistics|cargo|kargo)\b/;
+const FIRMA_YUK_DILI = /\b(?:lazim|aranir|araniyor|ariyoruz|ariyorum|var|ton\w*|palet\w*|komple|parsiyel|musait\w*|bos\w*|yukle\w*|cikis\w*|iner|teslim\w*)\b/;
+const FIRMA_ETIKET = /^([^:\-–]{3,15})[:\-–]\s*(.{3,60})$/;
+const KUCUK_KELIME = new Set(['ve']);
+
+// Tamamı BÜYÜK yazılmış adı "Emircan Lojistik" biçimine çevirir (kısa kısaltmalar ABC gibi kalır)
+function basHarfBuyut(s) {
+  if (/\p{Ll}/u.test(s)) return s; // zaten karışık/küçük harfli: yazarın biçimi korunur
+  return s.split(' ').map(w => {
+    const l = w.toLocaleLowerCase('tr');
+    if (KUCUK_KELIME.has(l)) return l;
+    const harf = (w.match(/\p{L}/gu) || []).length;
+    if (harf <= 3 && !/^(?:ltd|sti|şti)\.?$/.test(l)) return w;
+    return l.charAt(0).toLocaleUpperCase('tr') + l.slice(1);
+  }).join(' ');
+}
+function firmaTemizle(s) {
+  let t = String(s || '').replace(/[\u{1F1E6}-\u{1F1FF}]/gu, '').replace(EMOJI, '').replace(/\s{2,}/g, ' ')
+    .replace(/^[\s\-–—:|,.>»*_~]+|[\s\-–—:|,>»*_~]+$/g, '').trim();
+  if (t.length > 60) t = t.slice(0, 60).trim();
+  if ((t.match(/\p{L}/gu) || []).length < 3) return '';
+  return basHarfBuyut(t);
+}
+// "Firma: X" etiketi öncelikli; yoksa en alttaki kısa "… Nakliyat/Lojistik/Ltd" imza satırı
+function firmaBul(satirlar) {
+  let imza = '';
+  for (const s of satirlar) {
+    if (s.ayrac || s.sadeceTel) continue;
+    const t = satirTemizle(telefonSil(s.raw));
+    if (!t) continue;
+    const e = t.match(FIRMA_ETIKET);
+    if (e && /^(?:firma|sirket|unvan)(?: adi)?$/.test(normalize(e[1]))) { const f = firmaTemizle(e[2]); if (f) return f; }
+    const n = normalize(t);
+    const kelime = n ? n.split(' ').length : 0;
+    if (kelime < 2 || kelime > 6 || !FIRMA_KELIME.test(n)) continue;
+    if (s.yer.length >= 2 || BASLIK.test(n) || HEDEF.test(n) || FIRMA_YUK_DILI.test(n) || /\d{3,}/.test(n)) continue;
+    const f = firmaTemizle(t);
+    if (f) imza = f;
+  }
+  return imza;
+}
 // Detaya uygun mu? (imza, "irtibat" artığı, sadece isim+numara satırlarını eler)
 function detayaUygunMu(temiz, satirdaTelefonVar, yerVar) {
   const n = normalize(temiz);
@@ -233,6 +278,12 @@ function ilanlariAyristir(hamMesaj, secenek = {}) {
   const cevrilmis = waLinkiniNumarayaCevir(hamMesaj);
   if (cevrilmis.length < 8) return RET('cok_kisa');
   if (cevrilmis.length > 4000) return RET('cok_uzun');
+
+  // Yurt dışı yükleri (Irak, Almanya, Erbil, KKTC...) baştan ele: mesajın herhangi bir yerinde geçmesi yeterli
+  if (secenek.yabanciEngelle !== false) {
+    const terim = yabanciTerim(normalize(cevrilmis.replace(URL_RE, ' ')));
+    if (terim) return { ilanlar: [], ret: 'yabanci', terim };
+  }
 
   // Satırlara böl (satır sonu + madde işaretleri); spam satırlarını at
   const parcalar = cevrilmis.replace(URL_RE, ' ')
@@ -361,6 +412,7 @@ function ilanlariAyristir(hamMesaj, secenek = {}) {
       nereye: varis ? yerMetni(varis) : 'Belirtilmedi',
       arac_tipi: arac,
       detay,
+      firma: firmaBul(satirlar),
       telefon_ham: tel,
       telefon: telefonBicimle(tel),
       anahtar: ilanAnahtari(detay, tel)
@@ -374,4 +426,4 @@ function ilanAnahtari(detay, tel) {
   return `${normalize(String(detay).replace(/^\[BOŞ ARAÇ\]\s*/, '')).slice(0, 240)}|${String(tel).replace(/\D/g, '')}`;
 }
 
-module.exports = { ilanlariAyristir, ilanAnahtari, yerleriBul, aracTipiTespit, telefonlariBul, telefonNormalize, telefonBicimle, normalize, yerMetni };
+module.exports = { firmaTemizle, ilanlariAyristir, ilanAnahtari, yerleriBul, aracTipiTespit, telefonlariBul, telefonNormalize, telefonBicimle, normalize, yerMetni };
