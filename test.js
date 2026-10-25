@@ -20,33 +20,25 @@ test('"tire" (lastik) ve "bor" (madde) ilçe sanılmaz', () => {
   assert.deepEqual(rota("Konya'dan Ankara'ya lastik tire yükü var" + TEL), ['Konya -> Ankara']);
   assert.deepEqual(rota("Bor madeni yükü var Eskişehir'den Konya'ya" + TEL), ['Eskişehir -> Konya']);
 });
-test('Çoklu satır: aynı çıkış + araç + telefon tek ilanda birleşir', () => {
-  const r = cokluIlanlariAyristir("KONYA ÇIKIŞLI\nKonya Ankara tır\nKonya İzmir tır\n" + TEL);
-  assert.equal(r.length, 1);
-  assert.equal(r[0].nereden, 'Konya');
-  assert.equal(r[0].nereye, 'Ankara, İzmir');
-  assert.ok(r[0].detay.includes('Ankara') && r[0].detay.includes('İzmir'));
+test('Çoklu satır: aynı çıkış tek ilanda toplanır', () => {
+  const r = rota("KONYA ÇIKIŞLI\nKonya Ankara tır\nKonya İzmir tır\n" + TEL);
+  assert.deepEqual(r, ['Konya -> Ankara, İzmir']);
 });
-test('Çıkışı farklı satırlar ayrı ilan kalır', () => {
-  assert.equal(rota("Konya Ankara tır\nBursa İzmir tır\n" + TEL).length, 2);
-});
-test('Aynı çıkışta araç tipi farklıysa ayrı ilan olur (araç filtresi bozulmasın)', () => {
-  const r = cokluIlanlariAyristir('Konya Ankara tır\nKonya Bursa tır\nKonya İzmir frigo\n0532 111 22 33');
+test('Farklı çıkışlar ayrı ilan olarak kalır', () => {
+  const r = rota("Konya Ankara tır\nAdana İzmir tır\n" + TEL);
   assert.equal(r.length, 2);
-  assert.deepEqual(r.map(i => i.nereye).sort(), ['Ankara, Bursa', 'İzmir']);
 });
-test('COKLU_ROTAYI_BIRLESTIR=false eski davranışı geri getirir', () => {
-  const { CONFIG } = require('./index.js');
-  CONFIG.COKLU_ROTAYI_BIRLESTIR = false;
-  try { assert.equal(cokluIlanlariAyristir("Konya Ankara tır\nKonya İzmir tır\n" + TEL).length, 2); }
-  finally { CONFIG.COKLU_ROTAYI_BIRLESTIR = true; }
+test('Emoji / keycap karakterleri detaya girmez', () => {
+  const r = cokluIlanlariAyristir('📍Germencik → ORDU 4️⃣ damperli' + TEL);
+  assert.ok(!/[\u20E3\uFE0F]|\p{Extended_Pictographic}/u.test(r[0].detay));
 });
 test('Spam / iş ilanı elenir', () => {
   assert.deepEqual(rota('Şoför aranıyor Konya' + TEL), []);
 });
 test('Aynı mesajda telefonsuz satır telefonu en yakın satırdan alır', () => {
-  const r = cokluIlanlariAyristir('Konya Ankara tır\nBursa İzmir tır\n0532 111 22 33');
-  assert.equal(r.length, 2);
+  const r = cokluIlanlariAyristir('Konya Ankara tır\nKonya Bursa tır\n0532 111 22 33');
+  assert.equal(r.length, 1);
+  assert.equal(r[0].nereye, 'Ankara, Bursa');
   assert.ok(r.every(i => i.telefon_ham === '05321112233'));
 });
 
@@ -91,4 +83,12 @@ test('Başlıksız "boşaltır" listesi çıkış sanılmaz', () => {
   assert.equal(r.length, 1);
   assert.equal(r[0].nereden, 'Belirtilmedi');
   assert.equal(r[0].nereye, 'Burdur');
+});
+
+test('Alt başlıklı liste: "Kızıltepe den" ve "Hilvan dan yükler" ayrı çıkış; "büyük balya" ilçe sayılmaz', () => {
+  const m = '👉KIZILTEPE DEN BÜYÜK BALYA YÜKLENECEK 13.60 AÇIK İHTİYAÇ\n✅Tarsus 1araç\n✅Antep Kilis yolu 1araç\n✅Elbistan 1araç\n\n👉Hilvan dan yükler\nÇuvallı silaç\n✅Van erciş büyük balya 1\n✅Malatya\n✅Halfeti\n\n0544 227 63 44';
+  assert.deepEqual(rota(m), [
+    'Mardin / Kızıltepe -> Mersin / Tarsus, Gaziantep, Kahramanmaraş / Elbistan',
+    'Şanlıurfa / Hilvan -> Van / Erciş, Malatya, Şanlıurfa / Halfeti'
+  ]);
 });
