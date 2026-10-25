@@ -1,107 +1,101 @@
 'use strict';
 // Çalıştırma: npm test   (ağ/WhatsApp gerekmez; yalnızca ayrıştırıcıyı sınar)
+// Kural: 1 WhatsApp mesajı = en fazla 1 ilan (mesajın temiz hali).
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { ilanlariAyristir, aracTipiTespit } = require('./parser.js');
 
 const TEL = ' 0532 111 22 33';
 const al = (m) => ilanlariAyristir(m).ilanlar;
-const rota = (m) => al(m).map(i => `${i.nereden} -> ${i.nereye}`);
+const tek = (m) => { const r = al(m); assert.equal(r.length, 1, 'tek ilan beklenirdi'); return r[0]; };
+const rota = (m) => { const i = tek(m); return `${i.nereden} -> ${i.nereye}`; };
 
 test('Ereğli → Kırıkhan', () => {
-  assert.deepEqual(rota("Ereğli'den hatay Kırıkhan'a 9 metre 10 ton açık tır" + TEL), ['Konya / Ereğli -> Hatay / Kırıkhan']);
+  assert.equal(rota("Ereğli'den hatay Kırıkhan'a 9 metre 10 ton açık tır" + TEL), 'Konya / Ereğli -> Hatay / Kırıkhan');
 });
 test('Sarayönü den Tire (boşluklu ek + zayıf ilçe)', () => {
-  assert.deepEqual(rota('SARAYÖNÜ DEN TİRE TIR KISA ARPA 1000' + TEL), ['Konya / Sarayönü -> İzmir / Tire']);
+  assert.equal(rota('SARAYÖNÜ DEN TİRE TIR KISA ARPA 1000' + TEL), 'Konya / Sarayönü -> İzmir / Tire');
 });
 test('Kdz Ereğli Zonguldak sayılır', () => {
-  assert.deepEqual(rota('Kdz Ereğli den Konya ya tır lazım' + TEL), ['Zonguldak / Ereğli -> Konya']);
+  assert.equal(rota('Kdz Ereğli den Konya ya tır lazım' + TEL), 'Zonguldak / Ereğli -> Konya');
 });
 test('"tire" (lastik) ve "bor" ilçe sanılmaz', () => {
-  assert.deepEqual(rota("Konya'dan Ankara'ya lastik tire yükü var" + TEL), ['Konya -> Ankara']);
-  assert.deepEqual(rota("Bor madeni yükü var Eskişehir'den Konya'ya" + TEL), ['Eskişehir -> Konya']);
+  assert.equal(rota("Konya'dan Ankara'ya lastik tire yükü var" + TEL), 'Konya -> Ankara');
+  assert.equal(rota("Bor madeni yükü var Eskişehir'den Konya'ya" + TEL), 'Eskişehir -> Konya');
 });
-test('Çıkış başlığı altında varış listesi: her rota ayrı ilan', () => {
-  assert.deepEqual(rota('KONYA ÇIKIŞLI\nKonya Ankara tır\nKonya İzmir tır\n' + TEL), ['Konya -> Ankara', 'Konya -> İzmir']);
+test('Çok rotalı mesaj TEK ilan olur, tüm satırlar detayda kalır', () => {
+  const i = tek('KONYA ÇIKIŞLI\nKonya Ankara tır\nKonya İzmir tır\n' + TEL);
+  assert.equal(i.nereden, 'Konya');
+  assert.ok(i.detay.includes('Ankara') && i.detay.includes('İzmir'));
 });
-test('Farklı çıkışlar ayrı ilan', () => {
-  assert.equal(al('Konya Ankara tır\nAdana İzmir tır\n' + TEL).length, 2);
-});
-test('Telefonsuz satır en yakın telefonu alır', () => {
-  const r = al('Konya Ankara tır\nKonya Bursa tır\n0532 111 22 33');
-  assert.equal(r.length, 2);
-  assert.ok(r.every(i => i.telefon_ham === '05321112233'));
+test('Telefon ilanın telefonu olur, detayda numara kalmaz', () => {
+  const i = tek('Konya Ankara tır\n0532 111 22 33');
+  assert.equal(i.telefon_ham, '05321112233');
+  assert.ok(!/0532/.test(i.detay));
 });
 test('Emoji detaya girmez', () => {
-  const r = al('📍Germencik → ORDU 4️⃣ damperli' + TEL);
-  assert.ok(!/[\u20E3\uFE0F]|\p{Extended_Pictographic}/u.test(r[0].detay));
+  assert.ok(!/[\u20E3\uFE0F]|\p{Extended_Pictographic}/u.test(tek('📍Germencik → ORDU 4️⃣ damperli' + TEL).detay));
 });
-test('İş ilanı / spam elenir; telefonsuz mesaj elenir', () => {
-  assert.deepEqual(rota('Şoför aranıyor Konya' + TEL), []);
-  assert.deepEqual(rota('izmir ve çevresine Gelen nakliyeci arkadaşlara eleman Asansör temin edilir İlyas' + TEL), []);
-  assert.deepEqual(rota('Konya Ankara tır lazım'), []);
-  assert.deepEqual(rota('Günaydın arkadaşlar hayırlı cumalar' + TEL), []);
+test('Spam / iş ilanı / telefonsuz / sohbet elenir', () => {
+  assert.deepEqual(al('Şoför aranıyor Konya' + TEL), []);
+  assert.deepEqual(al('izmir ve çevresine Gelen nakliyeci arkadaşlara eleman Asansör temin edilir İlyas' + TEL), []);
+  assert.deepEqual(al('Konya Ankara tır lazım'), []);
+  assert.deepEqual(al('Günaydın arkadaşlar hayırlı cumalar' + TEL), []);
+  assert.deepEqual(al('Konya Ankara maçı kaç kaç' + TEL), []);
 });
-test('Ekran görüntüsü: Çorlu/Muratlı çok başlıklı liste ayrı ilanlara bölünür', () => {
-  const m = 'SABAH ÇORLU ASB YÜKLEMELİ\nADANA KAPALI 10TEKER 9 PALET 11.5 TON\nSABAH MURATLI YÜKLEMELİ (AÇIK-KAPALI UYAR)\nESENYURT TIR\nANTALYA TIR\n0555 111 22 33';
-  assert.deepEqual(rota(m), ['Tekirdağ / Çorlu -> Adana', 'Tekirdağ / Muratlı -> İstanbul / Esenyurt', 'Tekirdağ / Muratlı -> Antalya']);
-  assert.equal(al(m)[0].arac_tipi, '10 Teker');
+test('Çok başlıklı liste (Çorlu/Muratlı) TEK ilan, hiçbir satır kaybolmaz', () => {
+  const i = tek('SABAH ÇORLU ASB YÜKLEMELİ\nADANA KAPALI 10TEKER 9 PALET 11.5 TON\nSABAH MURATLI YÜKLEMELİ (AÇIK-KAPALI UYAR)\nESENYURT TIR\nANTALYA TIR\n0555 111 22 33');
+  assert.equal(i.nereden, 'Tekirdağ / Çorlu');
+  for (const k of ['ADANA', 'MURATLI', 'ESENYURT', 'ANTALYA', '11.5 TON']) assert.ok(i.detay.includes(k), k);
 });
-test('Ekran görüntüsü: Karaman Kılbasan → Susurluk, "Pancar" yer sanılmaz', () => {
-  const m = 'KARAMAN KILBASAN SUSURLUK • Pancar Yüklemesi • Sınırsız Damper • 1500+KDV • SALI&CUMA Ödeme • Serbest Tonaj • KARAMAN DEMİRYURT SUSURLUK' + TEL;
-  const r = al(m);
-  assert.equal(r[0].nereden, 'Karaman');
-  assert.equal(r[0].nereye, 'Balıkesir / Susurluk');
-  assert.equal(r[0].arac_tipi, 'Damperli');
+test('Karaman Kılbasan → Susurluk; "Pancar" yer sanılmaz', () => {
+  const i = tek('KARAMAN KILBASAN SUSURLUK • Pancar Yüklemesi • Sınırsız Damper • 1500+KDV • SALI&CUMA Ödeme • Serbest Tonaj • KARAMAN DEMİRYURT SUSURLUK' + TEL);
+  assert.equal(`${i.nereden} -> ${i.nereye}`, 'Karaman -> Balıkesir / Susurluk');
+  assert.equal(i.arac_tipi, 'Damperli');
 });
-test('Basit tir ilanları', () => {
-  assert.deepEqual(rota('BALIKESİR+MANİSA TIR' + TEL), ['Balıkesir -> Manisa']);
-  assert.deepEqual(rota('İZMİR+AYDIN TIR' + TEL), ['İzmir -> Aydın']);
-  assert.deepEqual(rota('SANCAKTEPE+GEBZE TIR' + TEL), ['İstanbul / Sancaktepe -> Kocaeli / Gebze']);
-  assert.deepEqual(rota('MERSİN+HATAY TIR' + TEL), ['Mersin -> Hatay']);
+test('Emircan mesajı: 1 ilan; link, firma imzası, slogan ve numara temizlenir', () => {
+  const m = '📍Konya Ilgın yükleme\n🛑 tonluk paket küspe\n✋Antalya Döşemealtı iner ✋tonu 750 TL 35 tona kadar yükleme olur\n\n📍Afyon merkez yükleme 🛑tonluk paket mısır\nr🌽 silajı İzmir buca iner\n🚛 1 araç lazım tonu 900 TL\n\n✋HEMEN YÜKLER\n🇹🇷EMİRCAN LOJİSTİK\n📲 0 552 947 88 83\nhttps://whatsapp.com/channel/0029Vb9akxDFy7297Clh6t1x';
+  const i = tek(m);
+  assert.equal(i.nereden, 'Konya / Ilgın');
+  assert.equal(i.telefon_ham, '05529478883');
+  for (const k of ['Döşemealtı', 'İzmir buca', '750 TL', '900 TL']) assert.ok(i.detay.includes(k), k);
+  for (const k of ['LOJİSTİK', 'HEMEN YÜKLER', 'http', '0552']) assert.ok(!i.detay.includes(k), k);
 });
-test('Tek satırlı detay korunur: Bayburt→Kayseri', () => {
-  const r = al('Bayburt arpalı dan\nKayseri merkez\nDamperli tır\n4 araç\n2.500 tl\nDökme çekirdek\n0"12 ton\n\n0533 414 3553');
-  assert.equal(r.length, 1);
-  assert.equal(`${r[0].nereden} -> ${r[0].nereye}`, 'Bayburt -> Kayseri');
-  for (const k of ['2.500 tl', 'Dökme çekirdek', '12 ton', '4 araç']) assert.ok(r[0].detay.includes(k), k);
+test('Aksaray listesi (19 satır): TEK ilan, plaka öneki "68AKSARAY" tanınır', () => {
+  const i = tek('📍 68AKSARAY ORGANİZE DOKME POMZA YÜKLER\n🔷 Adana → 1 Dorse\n🔷 Afyon / İscehisar → 4 Dorse\n🔷 Ankara → 5 Dorse\n🔷 KIRKLARELİ → 1 Dorse\n0552 947 88 83');
+  assert.equal(i.nereden, 'Aksaray');
+  assert.ok(i.detay.includes('KIRKLARELİ') && i.detay.includes('Ankara'));
+});
+test('Aynı mesaj + aynı telefon = aynı mükerrer anahtarı', () => {
+  const m = 'Konya Ankara 13.60 açık tır lazım' + TEL;
+  assert.equal(tek(m).anahtar, tek(m).anahtar);
+  assert.notEqual(tek(m).anahtar, tek('Konya Bursa 13.60 açık tır lazım' + TEL).anahtar);
+});
+test('Detay kaybolmaz: Bayburt→Kayseri', () => {
+  const i = tek('Bayburt arpalı dan\nKayseri merkez\nDamperli tır\n4 araç\n2.500 tl\nDökme çekirdek\n0"12 ton\n\n0533 414 3553');
+  assert.equal(`${i.nereden} -> ${i.nereye}`, 'Bayburt -> Kayseri');
+  for (const k of ['2.500 tl', 'Dökme çekirdek', '12 ton', '4 araç']) assert.ok(i.detay.includes(k), k);
 });
 test('13/60 → 13.60, irtibat artığı detaya girmez', () => {
-  const r = al('Yarın yükler ;\nNiğde - Batman\n13/60 patates 🥔\n\nİrtibat :05052162168');
-  assert.equal(r.length, 1);
-  assert.ok(r[0].detay.includes('patates') && r[0].detay.includes('Yarın') && r[0].detay.includes('13.60'));
-  assert.ok(!/irtibat/i.test(r[0].detay));
+  const i = tek('Yarın yükler ;\nNiğde - Batman\n13/60 patates 🥔\n\nİrtibat :05052162168');
+  assert.ok(i.detay.includes('patates') && i.detay.includes('Yarın') && i.detay.includes('13.60'));
+  assert.ok(!/irtibat/i.test(i.detay));
 });
-test('Bölümlü liste: her bölümün kendi çıkışı', () => {
-  const m = '🛑BURDUR YÜKLER\n🔻KONYA EREĞLİ BOŞALTIR\n⚠️DAMPER 13.60 AÇIK TENTE ARAÇLAR\n-----------------------\n🛑Ç.KALE ÇAN TORBA KÖMÜR YÜKLER\n🔻AKSARAY AĞAÇÖREN BOŞALTIR\n🔻AKSARAY ESKİL BOŞALTIR\n⚠️DAMPER 13.60 AÇIK\n' + TEL;
-  assert.deepEqual(rota(m), ['Burdur -> Konya / Ereğli', 'Çanakkale -> Aksaray / Ağaçören', 'Çanakkale -> Aksaray / Eskil']);
-  assert.equal(al(m)[1].arac_tipi, 'Damperli');
-});
-test('Kısaltma: Lüleburgaz → İst.Avrupa', () => {
-  const r = al('HEMEN YÜKLEME\n\nLüleburgaz ➡️ İst.Avrupa Frigo Tır\n\n0 506 156 32 10');
-  assert.equal(`${r[0].nereden} -> ${r[0].nereye}`, 'Kırklareli / Lüleburgaz -> İstanbul');
-  assert.equal(r[0].arac_tipi, 'Frigo');
+test('Kısaltma: Lüleburgaz → İst.Avrupa, Frigo', () => {
+  const i = tek('HEMEN YÜKLEME\n\nLüleburgaz ➡️ İst.Avrupa Frigo Tır\n\n0 506 156 32 10');
+  assert.equal(`${i.nereden} -> ${i.nereye}`, 'Kırklareli / Lüleburgaz -> İstanbul');
+  assert.equal(i.arac_tipi, 'Frigo');
 });
 test('Araç tipi sözlüğü', () => {
   assert.equal(aracTipiTespit('Maraş merkez 13:60 açık'), '13.60 Açık Dorse');
   assert.equal(aracTipiTespit('13/60 patates'), 'Kapalı Dorse');
   assert.equal(aracTipiTespit('KISA DORSE bir araç'), 'Damperli');
-});
-test('Başlıksız "boşaltır" → çıkış sanılmaz', () => {
-  const r = al('🔻BURDUR BUCAK BOŞALTIR\n⚠️DAMPER 13.60 AÇIK TENTE ARAÇLAR\n' + TEL);
-  assert.equal(r.length, 1);
-  assert.equal(r[0].nereden, 'Belirtilmedi');
-  assert.equal(r[0].nereye, 'Burdur / Bucak');
-});
-test('Alt başlıklı liste: "büyük balya" ilçe sayılmaz', () => {
-  const m = '👉KIZILTEPE DEN BÜYÜK BALYA YÜKLENECEK 13.60 AÇIK İHTİYAÇ\n✅Tarsus 1araç\n✅Antep Kilis yolu 1araç\n✅Elbistan 1araç\n\n👉Hilvan dan yükler\nÇuvallı silaç\n✅Van er 1 araç\n0532 111 22 33';
-  assert.deepEqual(rota(m), [
-    'Mardin / Kızıltepe -> Mersin / Tarsus', 'Mardin / Kızıltepe -> Gaziantep',
-    'Mardin / Kızıltepe -> Kahramanmaraş / Elbistan', 'Şanlıurfa / Hilvan -> Belirtilmedi'
-  ]);
+  assert.equal(aracTipiTespit('ADANA KAPALI 10TEKER'), '10 Teker');
 });
 test('Tek şehirli ilan: Konya\'dan yük var', () => {
-  const r = al("Konya'dan yük var tır lazım" + TEL);
-  assert.equal(r[0].nereden, 'Konya');
-  assert.equal(r[0].nereye, 'Belirtilmedi');
+  const i = tek("Konya'dan yük var tır lazım" + TEL);
+  assert.equal(`${i.nereden} -> ${i.nereye}`, 'Konya -> Belirtilmedi');
+});
+test('Boş araç ilanı ARAC türünde', () => {
+  assert.equal(tek("Konya'dayım boşum yük arıyorum" + TEL).tur, 'ARAC');
 });
