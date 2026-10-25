@@ -360,6 +360,8 @@ function satirdanLokasyonlariBul(satir) {
     const kayit = YER_HARITASI.get(m[1]);
     if (!kayit) continue;
     const ek = m[2] || m[3] || '';
+    // "büyük balya" bir yük cinsidir; ekli (Balya'ya, Balya'dan) ya da "Balıkesir Balya" değilse ilçe sayılmaz
+    if (kayit.ilce === 'Balya' && !ek && !/balikesir/.test(temiz)) continue;
     if (ek && kayit.ekTipi === 'kisaltma' && !EK_KISALTMA.has(ek)) continue;
     if (kayit.ekTipi === 'zayif') {
       // "Tire'ye", "Tireden" ya da "Sarayönü den Tire" biçimi dışında çıplak "tire" sıradan kelime sayılır
@@ -473,7 +475,7 @@ function ilanTuruTespit(norm) {
 // ════════════════════════════════════════════════════════════════
 // 7. ÇOKLU İLAN AYRIŞTIRMA
 // ════════════════════════════════════════════════════════════════
-const BASLIK_REGEX = /yukleme|cikis|kalkis|aranir|araniyor|lazim|yuklu|yukler/;
+const BASLIK_REGEX = /yukleme|cikis|kalkis|aranir|araniyor|lazim|yuklu|yukler|yuklen\w*/;
 // "X boşaltır / teslim / varış" satırı bir varış noktasıdır; asla çıkış başlığı sayılmaz.
 const HEDEF_ANAHTAR_REGEX = /\b(?:bosalt\w*|teslim\w*|varis\w*|inecek|indirme\w*|tahliye\w*|gidecek)\b/;
 // "-----", "=====", "•••••" gibi ayraç satırları mesajı bölümlere ayırır (her bölümün kendi başlığı/araç satırı vardır).
@@ -496,7 +498,8 @@ function rotaCoz(loks, ortak) {
   }
 
   const tek = loks[0];
-  if (ortak && ortak.il !== tek.il) return { kalkis: ortak, hedefler: [tek] };
+  const farkliYer = ortak && (ortak.il !== tek.il || (ortak.ilce && tek.ilce && ortak.ilce !== tek.ilce));
+  if (farkliYer) return { kalkis: ortak, hedefler: [tek] };
   return null;
 }
 
@@ -615,8 +618,9 @@ function bolumIlanlari(idxler, b) {
   yerel.forEach((satir, k) => {
     if (ilanSatirlari.length >= kalanHak) return;
     if (/^[\d\s+()\-.]+$/.test(satir)) return; // sadece telefon/rakam satırı
-    const loks = satirdanLokasyonlariBul(satir);
+    let loks = satirdanLokasyonlariBul(satir);
     if (!loks.length) return;
+    if (ortak && loks.length > 1 && /\byolu\b/.test(metniNormalizeEt(satir)) && !loks.some(l => l.rol)) loks = [loks[0]];
     const rota = rotaCoz(loks, ortak);
     if (!rota) return;
     ilanSatirlari.push({ k, rota });
@@ -713,9 +717,17 @@ function cokluIlanlariAyristir(hamMesaj, secenekler = {}) {
   const mesajArac = farkliAraclar.length === 1 ? farkliAraclar[0] : 'Belirtilmedi';
 
   // Mesajı "-----" ayraçlarıyla bölümlere ayır; her bölüm kendi başlığı, araç satırı ve ilanlarıyla ayrı işlenir.
+  // Ayraç olmasa da "HİLVAN dan yükler" gibi tek çıkış şehirli bir başlık satırı yeni bölüm başlatır.
+  const altBaslikMi = (s) => {
+    const n = metniNormalizeEt(s);
+    if (!BASLIK_REGEX.test(n) || HEDEF_ANAHTAR_REGEX.test(n) || telefonlariBul(s).length) return false;
+    const l = satirdanLokasyonlariBul(s);
+    return l.length === 1 && l[0].rol === 'cikis';
+  };
   const bolumler = [[]];
   satirlar.forEach((s, i) => {
     if (BOLUM_AYIRAC_REGEX.test(s)) { if (bolumler[bolumler.length - 1].length) bolumler.push([]); return; }
+    if (bolumler[bolumler.length - 1].length >= 2 && altBaslikMi(s)) bolumler.push([]);
     bolumler[bolumler.length - 1].push(i);
   });
 
