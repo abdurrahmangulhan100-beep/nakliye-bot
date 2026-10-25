@@ -1,14 +1,12 @@
 {
   "name": "nakliye-bot",
-  "version": "1.1.0",
+  "version": "3.0.0",
   "description": "WhatsApp Nakliye İlan Dinleyici",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
     "test": "node --test test.js"
   },
-  "keywords": ["nakliye", "whatsapp", "bot"],
-  "author": "",
   "license": "ISC",
   "type": "commonjs",
   "engines": { "node": ">=20" },
