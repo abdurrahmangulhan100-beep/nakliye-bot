@@ -24,7 +24,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { ilanlariAyristir, normalize } = require('./parser');
+const { ilanlariAyristir, ilanAnahtari, normalize } = require('./parser');
 
 // ═══════════════ 1. AYARLAR ═══════════════
 const env = process.env;
@@ -66,10 +66,9 @@ const htmlKacis = (t) => String(t || '').replace(/&/g, '&amp;').replace(/</g, '&
 
 // ═══════════════ 2. MÜKERRER KONTROLÜ ═══════════════
 const gorulenIlanlar = new Map(); // anahtar → zaman
-const ilanAnahtari = (nereden, nereye, arac, tel) => `${nereden}|${nereye}|${arac}|${tel}`;
 
 function mukerrerMi(i) {
-  const k = ilanAnahtari(i.nereden, i.nereye, i.arac_tipi, i.telefon_ham);
+  const k = i.anahtar;
   const t = gorulenIlanlar.get(k);
   const simdi = Date.now();
   if (t && simdi - t < CONFIG.MUKERRER_SAAT * 3600 * 1000) return true;
@@ -155,10 +154,13 @@ async function mukerrerOnbellekYukle() {
     if (error) return console.warn('⚠️ Mükerrer önbelleği yüklenemedi:', error.message);
     let n = 0;
     for (const r of data || []) {
-      const ham = CONFIG.SUPABASE_TELEFON_KOLONU ? r[CONFIG.SUPABASE_TELEFON_KOLONU] : ((r.cargo_detail || '').match(/Tel:\s*([\d ]{11,14})\s*$/) || [])[1];
+      let detay = r.cargo_detail || '';
+      let ham = CONFIG.SUPABASE_TELEFON_KOLONU ? r[CONFIG.SUPABASE_TELEFON_KOLONU] : null;
+      const m = detay.match(/ — Tel: ([\d ]{11,14})\s*$/);
+      if (m) { ham = ham || m[1]; detay = detay.slice(0, m.index); }
       const tel = String(ham || '').replace(/\D/g, '');
       if (tel.length !== 11) continue;
-      gorulenIlanlar.set(ilanAnahtari(r.from_city, r.to_city, r.vehicle_type, tel), Date.now()); n++;
+      gorulenIlanlar.set(ilanAnahtari(detay, tel), Date.now()); n++;
     }
     console.log(`🗂️ Mükerrer önbelleği: ${n} kayıt yüklendi.`);
   } catch (err) { console.warn('⚠️ Mükerrer önbelleği hatası:', err.message); }
