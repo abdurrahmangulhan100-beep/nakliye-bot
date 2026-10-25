@@ -218,7 +218,7 @@ const ILLER = [
 const IL_TAKMA_ADLARI = [
   ['Afyon', 'Afyonkarahisar'], ['İçel', 'Mersin'], ['Antep', 'Gaziantep'], ['G Antep', 'Gaziantep'], ['Gantep', 'Gaziantep'],
   ['Maraş', 'Kahramanmaraş'], ['K Maraş', 'Kahramanmaraş'], ['Kmaraş', 'Kahramanmaraş'],
-  ['Urfa', 'Şanlıurfa'], ['S Urfa', 'Şanlıurfa'], ['Surfa', 'Şanlıurfa'],
+  ['Ç Kale', 'Çanakkale'], ['Çkale', 'Çanakkale'], ['Urfa', 'Şanlıurfa'], ['S Urfa', 'Şanlıurfa'], ['Surfa', 'Şanlıurfa'],
   ['D Bakır', 'Diyarbakır'], ['Dbakır', 'Diyarbakır'], ['Diyarbekir', 'Diyarbakır']
 ];
 
@@ -331,9 +331,12 @@ Object.entries(ILCELER).forEach(([il, liste]) => liste.forEach(ilce => yerEkle(i
 // Sıradan kelimelerle karışan adlar ("Tire", "Bor", "Of"...) 'zayif' işaretlenir: yalnızca açık yön ekiyle kabul edilir.
 const { ILCELER_TAM, ZAYIF_YERLER } = require('./yerler');
 const ZAYIF_SET = new Set(ZAYIF_YERLER);
+
 Object.entries(ILCELER_TAM).forEach(([il, liste]) => liste.forEach(ilce => {
   yerEkle(ilce, il, ilce, ZAYIF_SET.has(metniNormalizeEt(ilce)) ? 'zayif' : 'tam');
 }));
+// "4 araç", "bir araç" Kastamonu/Araç ilçesi sanılıp hayalet ilan üretiyordu
+YER_HARITASI.delete('arac');
 const ZAYIF_EK = new Set(['dan', 'den', 'tan', 'ten', 'ya', 'ye']);
 
 // Tek bir derlenmiş regex: en uzun anahtar önce denenir.
@@ -399,6 +402,7 @@ const LINK_REGEX = /https?:\/\/|www\.|chat\.whatsapp\.com|\bt\.me\/|\bbit\.ly\//
 const SPAM_REGEX = [
   /\b(?:sofor|kaptan|eleman|personel)\b.{0,30}\b(?:aran\w*|ariyor\w*|lazim|gerek\w*|alinacak|alinir)\b/,
   /\bcalisma arkadasi\b/,
+  /\b(?:eleman|asansor|hamal|isci)\b.{0,40}\b(?:temin|saglan\w*|veririz|verilir)\b/,
   /\bsatilik\b|\bsatiyorum\b|\bdevren\b/,
   /\bhasar\s?kayitsiz\b|\bekspertiz\b/,
   /\bevden eve\b|\bev tasima\b|\bev esya\w*|\bofis tasima\b|\bceyiz\b/,
@@ -424,24 +428,34 @@ const ILAN_SINYAL_REGEX = /\b(?:yuk(?:u|ler|leri|lu|leme\w*|lenecek)?|arac\w*|la
 // ════════════════════════════════════════════════════════════════
 // 6. ARAÇ TİPİ VE İLAN TÜRÜ
 // ════════════════════════════════════════════════════════════════
-// Sıra önemli: özelden genele. ("tir" alt metni "satir", "getir" gibi kelimelerde de geçtiği için kelime sınırı şart.)
-const ARAC_TIPLERI = [
-  ['Frigo TIR', /\bfrigo\w*|\bfrigorifik\w*/],
-  ['Tenteli TIR', /\btenteli\b|\bkirmizi kapak\b|\bkirmizikapak\b|\bmega\b|\bjumbo\b/],
-  ['Konteyner', /\bkonteyner\w*|\b(?:20|40)\s?(?:ayak|lik|luk)\b/],
-  ['Lowbed', /\blowbed\b|\bloabed\b/],
-  ['Tanker', /\btanker\w*|\bsilobas\b/],
-  ['Damperli', /\bdamper\w*|\bhafriyat\b/],
-  ['Kırkayak', /\bkirkayak\w*/],
-  ['Kamyonet', /\bkamyonet\w*|\bpanelvan\b|\bpick ?up\b/],
-  ['Kamyon', /\bkamyon\w*|\b(?:6|8|10|12|14)\s?teker\w*/],
-  ['Dorse', /\bdorse\w*/],
-  ['TIR', /\b13\s?60\b|\b1360\b|\btir(?:lar|la|a|i|in|dan|im|imiz)?\b|\bcekici\b/]
-];
+// Site (lib/route.ts) ile AYNI sözlük ve öncelik: iki ayrıştırıcı farklı etiket üretince aynı ilan farklı görünüyordu.
+// Kategoriler: Kırkayak, Frigo, Damperli, Kapalı Dorse, 13.60 Açık Dorse, Açık Dorse, Kamyon ...
+const ACIK_DORSE_REGEX = /^(?![\s\S]*\b(?:kapali|tenteli|perdeli)\b)(?=[\s\S]*(?:\bacik\s+(?:tir|dorse)\b|\bacik\b\W+(?:\w+\W+){0,2}13[\s.,]?60\b|\b13[\s.,]?60\W+(?:\w+\W+){0,2}acik\b))/;
+
+// 13:60, 13/60, 13-60, 1360, 13,60 → 13.60 (yazım farkı yüzünden "13:60 açık" Açık Dorse sayılmıyordu)
+function olculeriDuzelt(metin) {
+  return String(metin || '').replace(/(?<!\d)13\s?[:\/\\,.\-]\s?60(?!\d)|(?<!\d)1360(?!\d)/g, '13.60');
+}
 
 function aracTipiTespit(metin) {
-  const alt = metniNormalizeEt(metin);
-  for (const [ad, re] of ARAC_TIPLERI) if (re.test(alt)) return ad;
+  const f = metniNormalizeEt(olculeriDuzelt(metin));
+  if (!f) return 'Belirtilmedi';
+  if (/\bkirkayak\w*/.test(f)) return 'Kırkayak';
+  if (/\bfrigo\w*|\bfrigorifik\w*|\bsoguk zincir\b|\btermokin\b/.test(f)) return 'Frigo';
+  if (/\bkisa dorse\b|\bdam[pm]er\w*|\bhafriyat\b/.test(f)) return 'Damperli';
+  if (/\b(?:kapali|tenteli|perdeli)\s+(?:tir|dorse)\b/.test(f)) return 'Kapalı Dorse';
+  if (ACIK_DORSE_REGEX.test(f)) return /\b13\s?60\b/.test(f) ? '13.60 Açık Dorse' : 'Açık Dorse';
+  if (/\blow ?be[dt]\b|\bloabed\b/.test(f)) return 'Lowbed';
+  if (/\bkonteyner\w*|\b(?:20|40)\s?(?:ayak|lik|luk)\b/.test(f)) return 'Konteyner';
+  if (/\btanker\w*|\bsilobas\b/.test(f)) return 'Tanker';
+  if (/\bdorse\w*|\btir(?:lar|la|a|i|in|dan|im|imiz)?\b|\b13\s?60\b|\bcekici\w*|\bmega\b|\bjumbo\b|\btenteli\b|\bkapali\b|\bperdeli\b|\bkirmizi ?kapak\b/.test(f)) return 'Kapalı Dorse';
+  if (/\b(?:10|on)\s?teker\w*/.test(f)) return '10 Teker';
+  if (/\b(?:8|sekiz)\s?teker\w*/.test(f)) return '8 Teker';
+  if (/\b(?:6|alti)\s?teker\w*/.test(f)) return '6 Teker';
+  if (/\bkamyonet\w*/.test(f)) return 'Kamyonet';
+  if (/\bpanel ?van\b/.test(f)) return 'Panelvan';
+  if (/\bpick ?up\b|\bpikap\b/.test(f)) return 'Pikap';
+  if (/\bkamyon\w*|\b(?:12|14)\s?teker\w*/.test(f)) return 'Kamyon';
   return 'Belirtilmedi';
 }
 
@@ -459,6 +473,10 @@ function ilanTuruTespit(norm) {
 // 7. ÇOKLU İLAN AYRIŞTIRMA
 // ════════════════════════════════════════════════════════════════
 const BASLIK_REGEX = /yukleme|cikis|kalkis|aranir|araniyor|lazim|yuklu|yukler/;
+// "X boşaltır / teslim / varış" satırı bir varış noktasıdır; asla çıkış başlığı sayılmaz.
+const HEDEF_ANAHTAR_REGEX = /\b(?:bosalt\w*|teslim\w*|varis\w*|inecek|indirme\w*|tahliye\w*|gidecek)\b/;
+// "-----", "=====", "•••••" gibi ayraç satırları mesajı bölümlere ayırır (her bölümün kendi başlığı/araç satırı vardır).
+const BOLUM_AYIRAC_REGEX = /^[\s\-_=─━*~•·.+#|]{5,}$/;
 
 function rotaCoz(loks, ortak) {
   if (loks.length >= 2) {
@@ -493,13 +511,45 @@ function enYakinTelefon(satirTelefonlari, idx) {
   return enIyi;
 }
 
-function detayOlustur(satir, baslikSatiri) {
-  let d = telefonlariTemizle(satir);
-  if (d.length < 15 && baslikSatiri) {
-    const b = telefonlariTemizle(baslikSatiri);
-    if (b && b !== d) d = `${b} • ${d}`.trim();
+// ── DETAY: ilanın TÜM satırları korunur (fiyat, tonaj, yük cinsi, araç sayısı, tarih kaybolmasın) ──
+const DANGLING_SATIR_REGEX = /^(?:irtibat|iletisim|tel|telefon|bilgi icin|bilgi|whatsapp|wp|ara|arayin|arayiniz|numara)(?:\s\w+){0,2}$/;
+const IMZA_FIRMA_REGEX = /\b(?:nakliyat|nakliye|nakliyecilik|lojistik|tasimacilik|transport|ticaret|ltd|sti)\b/;
+
+// Bir satırı detaya uygun hale getirir; imza / "irtibat" artığı / boş satırları '' döndürür.
+function detayTemizSatir(satir, zorunlu) {
+  const t = telefonlariTemizle(olculeriDuzelt(satir)).replace(/\s{2,}/g, ' ').trim();
+  const n = metniNormalizeEt(t);
+  if (!n) return '';
+  if (zorunlu) return t;
+  if (DANGLING_SATIR_REGEX.test(n)) return '';
+  const kelime = n.split(' ').length;
+  if (kelime <= 4 && IMZA_FIRMA_REGEX.test(n) && !satirdanLokasyonlariBul(satir).length) return ''; // "YAHYALI NAKLİYAT"
+  if (kelime <= 3 && telefonlariBul(satir).length && !satirdanLokasyonlariBul(satir).length) return ''; // "~YAKUP ~ 0532..."
+  return t;
+}
+
+function detayBirlestir(ogeler) {
+  const parcalar = [];
+  for (const { s, zorunlu } of ogeler) {
+    const t = detayTemizSatir(s, zorunlu);
+    if (t && !parcalar.includes(t)) parcalar.push(t);
   }
-  return kisalt(d, 300);
+  return kisalt(parcalar.join(' • '), 400);
+}
+
+// Site, metinde geçmeyen şehri alanlardan siler ve "Ç.KALE", "İst.Avrupa" gibi kısaltmaları tanımaz.
+// Kısaltma yüzünden çıkış/varış kaybolmasın diye, metinde eksik şehir varsa başa net bir "A → B" etiketi eklenir.
+const SITE_TAKMA = { 'Kahramanmaraş': ['maras'], 'Afyonkarahisar': ['afyon'], 'Gaziantep': ['antep'], 'Şanlıurfa': ['urfa'], 'Mersin': ['icel'], 'Kocaeli': ['izmit'], 'Sakarya': ['adapazari'] };
+function yerMetindeVarMi(norm, yer) {
+  const adaylar = [metniNormalizeEt(yer.il), ...(SITE_TAKMA[yer.il] || [])];
+  if (yer.ilce) adaylar.push(metniNormalizeEt(yer.ilce));
+  return adaylar.some(a => a && new RegExp(`(?:^|\\s)${a}`).test(norm));
+}
+function detayaRotaEkle(detay, kalkis, hedefler) {
+  if (!kalkis || !hedefler.length) return detay;
+  const norm = metniNormalizeEt(detay);
+  if ([kalkis, ...hedefler].every(y => yerMetindeVarMi(norm, y))) return detay;
+  return kisalt(`${yerMetni(kalkis)} → ${hedefler.map(yerMetni).join(', ')} • ${detay}`, 430);
 }
 
 function ilanNesnesi({ tur, kalkis, hedefler, arac, telefon, telefonKaynagi, detay }) {
@@ -517,6 +567,94 @@ function ilanNesnesi({ tur, kalkis, hedefler, arac, telefon, telefonKaynagi, det
     telefon_kaynagi: telefon ? telefonKaynagi : null,
     detay
   };
+}
+
+// Aynı ilde birden çok varış ilçesi varsa tek "il" etiketine indirir (ilçeler detay metninde zaten durur)
+function ilBazliHedefler(loks) {
+  const iller = new Map();
+  for (const l of loks) iller.set(l.il, iller.has(l.il) ? { il: l.il, ilce: null, rol: null } : l);
+  return [...iller.values()].slice(0, 3);
+}
+
+// Bölümün ilk 3 satırından ortak çıkış (başlık) noktasını bulur
+function baslikBul(yerel) {
+  for (let k = 0; k < Math.min(3, yerel.length); k++) {
+    const norm = metniNormalizeEt(yerel[k]);
+    if (HEDEF_ANAHTAR_REGEX.test(norm)) continue;
+    const loks = satirdanLokasyonlariBul(yerel[k]);
+    if (!loks.length) continue;
+    if (loks.length === 1 && loks[0].rol === 'varis') continue; // "Ankara'ya tır lazım" çıkış değildir
+    if (loks.length === 1 || BASLIK_REGEX.test(norm)) return { ortak: loks[0], baslikIdx: k };
+  }
+  return { ortak: null, baslikIdx: -1 };
+}
+
+// Tek bir bölümdeki (ya da bölümsüz mesajdaki) ilanları çıkarır
+function bolumIlanlari(idxler, b) {
+  const { satirlar, satirTelefonlari, satirAraclari, tumTelefonlar, gondericiTel, mesajTuru, mesajArac, kalanHak } = b;
+  const yerel = idxler.map(i => satirlar[i]);
+  const { ortak, baslikIdx } = baslikBul(yerel);
+  const baslikSatiri = baslikIdx >= 0 ? yerel[baslikIdx] : null;
+  const bolumTuru = ilanTuruTespit(metniNormalizeEt(yerel.join('\n')));
+
+  // Araç: başlıktaki araç → bölümde TEK bir araç tipi → mesajdaki tek araç tipi
+  const baslikArac = baslikSatiri ? aracTipiTespit(baslikSatiri) : 'Belirtilmedi';
+  const bolumAraclari = [...new Set(idxler.map(i => satirAraclari[i]).filter(a => a !== 'Belirtilmedi'))];
+  const bolumArac = baslikArac !== 'Belirtilmedi' ? baslikArac
+    : bolumAraclari.length === 1 ? bolumAraclari[0]
+    : bolumAraclari.length === 0 ? mesajArac : 'Belirtilmedi';
+
+  const ilanSatirlari = [];
+  yerel.forEach((satir, k) => {
+    if (ilanSatirlari.length >= kalanHak) return;
+    if (/^[\d\s+()\-.]+$/.test(satir)) return; // sadece telefon/rakam satırı
+    const loks = satirdanLokasyonlariBul(satir);
+    if (!loks.length) return;
+    const rota = rotaCoz(loks, ortak);
+    if (!rota) return;
+    ilanSatirlari.push({ k, rota });
+  });
+  if (!ilanSatirlari.length) return [];
+
+  const ilanIdx = new Set(ilanSatirlari.map(x => x.k));
+  const yerelTel = satirTelefonlari.map((l, i) => (idxler.includes(i) ? l : []));
+  // Ortak notlar: konumsuz, ilan olmayan satırlar (araç listesi, yük cinsi, kural...) → listedeki her ilana eklenir
+  const ekler = yerel
+    .map((s, j) => ({ s, j }))
+    .filter(({ s, j }) => !ilanIdx.has(j) && j !== baslikIdx && !satirdanLokasyonlariBul(s).length)
+    .filter(({ s }) => detayTemizSatir(s, false))
+    .slice(0, 2);
+
+  return ilanSatirlari.map(({ k, rota }) => {
+    const gIdx = idxler[k];
+    const satirNorm = metniNormalizeEt(yerel[k]);
+    const satirTel = satirTelefonlari[gIdx][0] || null;
+    const telefon = satirTel || enYakinTelefon(yerelTel, gIdx) || enYakinTelefon(satirTelefonlari, gIdx) || gondericiTel;
+    const telefonKaynagi = (satirTel || tumTelefonlar.length) ? 'ilan' : 'gonderici';
+    const satirArac = satirAraclari[gIdx];
+
+    let ogeler;
+    if (ilanSatirlari.length === 1) {
+      // Tek ilan: bölümdeki bütün satırlar o ilanın detayıdır (yük cinsi, fiyat, tonaj, tarih...)
+      ogeler = yerel.map((s, j) => ({ s, zorunlu: j === k || j === baslikIdx }));
+    } else {
+      const baslikGerekli = baslikIdx >= 0 && baslikIdx !== k && (rota.kalkis === ortak || detayTemizSatir(yerel[k], true).length < 15);
+      ogeler = [
+        ...(baslikGerekli ? [{ s: yerel[baslikIdx], zorunlu: true }] : []),
+        { s: yerel[k], zorunlu: true },
+        ...ekler.map(({ s }) => ({ s, zorunlu: false }))
+      ];
+    }
+    return ilanNesnesi({
+      tur: ilanTuruTespit(satirNorm) || bolumTuru || mesajTuru || 'YUK',
+      kalkis: rota.kalkis,
+      hedefler: rota.hedefler,
+      arac: satirArac !== 'Belirtilmedi' ? satirArac : bolumArac,
+      telefon,
+      telefonKaynagi,
+      detay: detayaRotaEkle(detayBirlestir(ogeler), rota.kalkis, rota.hedefler)
+    });
+  });
 }
 
 function cokluIlanlariAyristir(hamMesaj, secenekler = {}) {
@@ -537,8 +675,7 @@ function cokluIlanlariAyristir(hamMesaj, secenekler = {}) {
   const spamVar = SPAM_REGEX.some(r => r.test(tamNorm)) || tumSatirlar.some(spamSatir);
   const satirlar = spamVar ? tumSatirlar.filter(s => !spamSatir(s)) : tumSatirlar;
   if (!satirlar.length) return ret('spam');
-  const metin = satirlar.join('\n');
-  const mesajNorm = metniNormalizeEt(metin);
+  const mesajNorm = metniNormalizeEt(satirlar.join('\n'));
   const satirTelefonlari = satirlar.map(telefonlariBul);
   const tumTelefonlar = satirTelefonlari.flat();
   const satirAraclari = satirlar.map(aracTipiTespit);
@@ -549,54 +686,26 @@ function cokluIlanlariAyristir(hamMesaj, secenekler = {}) {
   if (!sinyalVar) return ret('sinyal_yok');
 
   const mesajTuru = ilanTuruTespit(mesajNorm);
+  const mesajArac = farkliAraclar.length === 1 ? farkliAraclar[0] : 'Belirtilmedi';
 
-  // Başlıkta ortak kalkış noktası ("KONYA ÇIKIŞLI ...") — ilk 3 satır
-  let ortak = null;
-  let baslikSatiri = null;
-  for (const satir of satirlar.slice(0, 3)) {
-    const loks = satirdanLokasyonlariBul(satir);
-    if (!loks.length) continue;
-    if (loks.length === 1 || BASLIK_REGEX.test(metniNormalizeEt(satir))) {
-      ortak = loks[0];
-      baslikSatiri = satir;
-      break;
-    }
-  }
-
-  // Aracı olmayan satırlar için varsayılan araç: başlıktaki araç, yoksa mesajda TEK bir araç tipi geçiyorsa o.
-  // Mesajda birden fazla farklı araç varsa tahmin yürütmeyiz ("Belirtilmedi").
-  const baslikArac = baslikSatiri ? aracTipiTespit(baslikSatiri) : 'Belirtilmedi';
-  const mesajArac = baslikArac !== 'Belirtilmedi' ? baslikArac : (farkliAraclar.length === 1 ? farkliAraclar[0] : 'Belirtilmedi');
+  // Mesajı "-----" ayraçlarıyla bölümlere ayır; her bölüm kendi başlığı, araç satırı ve ilanlarıyla ayrı işlenir.
+  const bolumler = [[]];
+  satirlar.forEach((s, i) => {
+    if (BOLUM_AYIRAC_REGEX.test(s)) { if (bolumler[bolumler.length - 1].length) bolumler.push([]); return; }
+    bolumler[bolumler.length - 1].push(i);
+  });
 
   const bulunanlar = [];
-
-  satirlar.forEach((satir, idx) => {
-    if (bulunanlar.length >= CONFIG.MAX_ILAN_PER_MESAJ) return;
-    if (/^[\d\s+()\-.]+$/.test(satir)) return; // sadece telefon/rakam satırı
-
-    const loks = satirdanLokasyonlariBul(satir);
-    if (!loks.length) return;
-
-    const rota = rotaCoz(loks, ortak);
-    if (!rota) return;
-
-    const satirNorm = metniNormalizeEt(satir);
-    const satirTel = satirTelefonlari[idx][0] || null;
-    const telefon = satirTel || enYakinTelefon(satirTelefonlari, idx) || gondericiTel;
-    const telefonKaynagi = (satirTel || tumTelefonlar.length) ? 'ilan' : 'gonderici';
-    const satirArac = satirAraclari[idx];
-    const tur = ilanTuruTespit(satirNorm) || mesajTuru || 'YUK';
-
-    bulunanlar.push(ilanNesnesi({
-      tur,
-      kalkis: rota.kalkis,
-      hedefler: rota.hedefler,
-      arac: satirArac !== 'Belirtilmedi' ? satirArac : mesajArac,
-      telefon,
-      telefonKaynagi,
-      detay: detayOlustur(satir, ortak && satir !== baslikSatiri ? baslikSatiri : null)
+  for (const idxler of bolumler) {
+    if (!idxler.length || bulunanlar.length >= CONFIG.MAX_ILAN_PER_MESAJ) continue;
+    bulunanlar.push(...bolumIlanlari(idxler, {
+      satirlar, satirTelefonlari, satirAraclari, tumTelefonlar, gondericiTel, mesajTuru, mesajArac,
+      kalanHak: CONFIG.MAX_ILAN_PER_MESAJ - bulunanlar.length
     }));
-  });
+  }
+
+  const tumDetay = () => detayBirlestir(satirlar.map(s => ({ s, zorunlu: false })));
+  const { ortak } = baslikBul(satirlar);
 
   // "Konya'da tır lazım 0532..." gibi tek şehirli ama net ilanlar
   if (!bulunanlar.length && ortak && ortak.rol !== 'varis' && CONFIG.TEK_SEHIRLI_ILAN_KABUL) {
@@ -604,13 +713,8 @@ function cokluIlanlariAyristir(hamMesaj, secenekler = {}) {
     const net = telefon && (farkliAraclar.length > 0 || ILAN_SINYAL_REGEX.test(mesajNorm));
     if (net) {
       bulunanlar.push(ilanNesnesi({
-        tur: mesajTuru || 'YUK',
-        kalkis: ortak,
-        hedefler: [],
-        arac: mesajArac,
-        telefon,
-        telefonKaynagi: 'ilan',
-        detay: detayOlustur(satirlar.join(' '), null)
+        tur: mesajTuru || 'YUK', kalkis: ortak, hedefler: [], arac: mesajArac,
+        telefon, telefonKaynagi: 'ilan', detay: tumDetay()
       }));
     }
   }
@@ -621,14 +725,16 @@ function cokluIlanlariAyristir(hamMesaj, secenekler = {}) {
     const sinyal = farkliAraclar.length > 0 || ILAN_SINYAL_REGEX.test(mesajNorm);
     if (telefon && sinyal) {
       const loks = satirlar.flatMap(satirdanLokasyonlariBul);
+      // "X boşaltır" listesinde yerler VARIŞ noktasıdır; ilk yeri çıkış sanmayalım
+      const sadeceVaris = !ortak && HEDEF_ANAHTAR_REGEX.test(mesajNorm);
       bulunanlar.push(ilanNesnesi({
         tur: mesajTuru || 'YUK',
-        kalkis: ortak || loks[0] || null,
-        hedefler: [],
+        kalkis: sadeceVaris ? null : (ortak || loks[0] || null),
+        hedefler: sadeceVaris ? ilBazliHedefler(loks) : [],
         arac: mesajArac,
         telefon,
         telefonKaynagi: tumTelefonlar.length ? 'ilan' : 'gonderici',
-        detay: detayOlustur(satirlar.join(' '), null)
+        detay: tumDetay()
       }));
     }
   }
