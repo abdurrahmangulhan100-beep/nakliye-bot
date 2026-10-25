@@ -1,6 +1,6 @@
 'use strict';
 /*
- * NAKLİYE CEPTE — WhatsApp grup dinleyici botu (v3, sade sürüm)
+ * NAKLİYE CEPTE — WhatsApp grup dinleyici botu (v3.1)
  * WhatsApp gruplarındaki yük / boş araç ilanlarını ayrıştırır (parser.js) ve Supabase'e (bot_listings) yazar.
  * İsteğe bağlı: Telegram kanalına da gönderir.
  *
@@ -17,6 +17,9 @@
  *   ILAN_OMRU_SAAT=10   MUKERRER_SAAT=6   MAX_MESAJ_YASI_DK=45
  *   ENGELLI_GRUPLAR=grup adı parçası,...   BOS_ARAC_ILANLARINI_ATLA=false
  *   TEK_SEHIRLI_ILAN_KABUL=true   GONDERICI_NUMARASINI_KULLAN=false
+ *   YABANCI_ILANLARI_ENGELLE=true   (Irak, Almanya, Erbil, KKTC... geçen ilanlar atılır)
+ *   GONDERICI_ADINI_FIRMA_KULLAN=true   (mesajda firma adı yoksa WhatsApp profil adı kullanılır)
+ *   VARSAYILAN_FIRMA=WhatsApp Lojistik Akışı   (hiçbir ad bulunamazsa)
  */
 const dns = require('dns');
 dns.setDefaultResultOrder('ipv4first');
@@ -24,7 +27,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { ilanlariAyristir, ilanAnahtari, normalize } = require('./parser');
+const { ilanlariAyristir, ilanAnahtari, normalize, firmaTemizle } = require('./parser');
 
 // ═══════════════ 1. AYARLAR ═══════════════
 const env = process.env;
@@ -54,6 +57,9 @@ const CONFIG = {
   TEK_SEHIRLI_KABUL: bool(env.TEK_SEHIRLI_ILAN_KABUL, true),
   GONDERICI_NO: bool(env.GONDERICI_NUMARASINI_KULLAN, false),
   RET_LOG: bool(env.RET_LOG, true),
+  YABANCI_ENGELLE: bool(env.YABANCI_ILANLARI_ENGELLE, true),
+  GONDERICI_ADI_FIRMA: bool(env.GONDERICI_ADINI_FIRMA_KULLAN, true),
+  VARSAYILAN_FIRMA: env.VARSAYILAN_FIRMA || 'WhatsApp Lojistik Akışı',
   ENGELLI_GRUPLAR: ['ilgin mot tas kopp', ...(env.ENGELLI_GRUPLAR || '').split(',')].map(normalize).filter(Boolean)
 };
 
@@ -92,7 +98,7 @@ function sbSatiri(i) {
     to_city: i.nereye,
     cargo_detail: i.tur === 'ARAC' ? `[BOŞ ARAÇ] ${i.detay}` : i.detay,
     vehicle_type: i.arac_tipi,
-    company_name: 'WhatsApp Lojistik Akışı'
+    company_name: i.firma || CONFIG.VARSAYILAN_FIRMA
   };
   if (CONFIG.SUPABASE_TELEFON_KOLONU) satir[CONFIG.SUPABASE_TELEFON_KOLONU] = i.telefon_ham;
   else satir.cargo_detail += ` — Tel: ${i.telefon}`; // ayrı kolon yoksa telefon detayda taşınır
@@ -169,10 +175,36 @@ async function mukerrerOnbellekYukle() {
 // ═══════════════ 4. TELEGRAM (isteğe bağlı) ═══════════════
 const tgKuyruk = [];
 let tgCalisiyor = false;
+const hashtag = (yer) => {
+  const il = String(yer || '').split(' / ')[0].replace(/[^\p{L}\p{N}]/gu, '');
+  return il && il !== 'Belirtilmedi' ? `#${il}` : '';
+};
+// Kanal mesajı: başlık, firma, güzergâh, araç, detay, iletişim (telefon + WhatsApp bağlantısı), şehir etiketleri
+function telegramMetni(i) {
+  const e = htmlKacis;
+  const bilinen = (y) => y && y !== 'Belirtilmedi';
+  const rota = bilinen(i.nereden) && bilinen(i.nereye) ? `<b>${e(i.nereden)}</b> ➡️ <b>${e(i.nereye)}</b>`
+    : bilinen(i.nereden) ? `<b>${e(i.nereden)}</b> çıkışlı`
+    : bilinen(i.nereye) ? `<b>${e(i.nereye)}</b> varışlı`
+    : 'Güzergâh ilan metninde';
+  const wa = /^05\d{9}$/.test(i.telefon_ham || '') ? `https://wa.me/90${i.telefon_ham.slice(1)}` : '';
+  const etiketler = [...new Set([hashtag(i.nereden), hashtag(i.nereye)].filter(Boolean))].join(' ');
+  return [
+    i.tur === 'ARAC' ? '🚛 <b>BOŞ ARAÇ</b>' : '📦 <b>YÜK İLANI</b>',
+    i.firma ? `🏢 ${e(i.firma)}` : null,
+    '',
+    `📍 ${rota}`,
+    i.arac_tipi && i.arac_tipi !== 'Belirtilmedi' ? `🚚 ${e(i.arac_tipi)}` : null,
+    `📝 ${e(kisalt(i.detay, 300))}`,
+    '',
+    `📞 <b>${e(i.telefon)}</b>`,
+    wa ? `💬 <a href="${wa}">WhatsApp ile yaz</a>` : null,
+    etiketler || null
+  ].filter(x => x !== null).join('\n');
+}
 function telegramaGonder(i) {
   if (!CONFIG.TELEGRAM_BOT_TOKEN || !CONFIG.TELEGRAM_KANAL_ID) return;
-  const baslik = i.tur === 'ARAC' ? '🚛 BOŞ ARAÇ' : '📦 YÜK İLANI';
-  const metin = `${baslik}\n📍 <b>${htmlKacis(i.nereden)}</b> ➡️ <b>${htmlKacis(i.nereye)}</b>\n🚚 ${htmlKacis(i.arac_tipi)}\n📝 ${htmlKacis(kisalt(i.detay, 300))}\n📞 ${htmlKacis(i.telefon)}`;
+  const metin = telegramMetni(i);
   if (tgKuyruk.length > 500) tgKuyruk.shift();
   tgKuyruk.push(metin);
   if (!tgCalisiyor) tgIsle();
@@ -252,20 +284,24 @@ async function mesajiIsle(sock, msg) {
     gondericiTel = /^90\d{10}$/.test(d) ? '0' + d.slice(2) : null;
   }
 
-  const { ilanlar, ret } = ilanlariAyristir(ham, { tekSehirKabul: CONFIG.TEK_SEHIRLI_KABUL, gondericiTelefon: gondericiTel });
+  const { ilanlar, ret, terim } = ilanlariAyristir(ham, { tekSehirKabul: CONFIG.TEK_SEHIRLI_KABUL, gondericiTelefon: gondericiTel, yabanciEngelle: CONFIG.YABANCI_ENGELLE });
   if (!ilanlar.length) {
     retSayac[ret] = (retSayac[ret] || 0) + 1;
+    if (ret === 'yabanci' && CONFIG.RET_LOG) console.log(`🌍 [YABANCI:${terim}] ${kisalt(ham.replace(/\s+/g, ' '), 100)}`);
     if (CONFIG.RET_LOG && ret !== 'cok_kisa' && ret !== 'telefon_yok' && /\d{10}/.test(ham.replace(/\D+/g, ''))) {
       console.log(`🚫 [RET:${ret}] ${kisalt(ham.replace(/\s+/g, ' '), 140)}`);
     }
     return;
   }
 
+  // Mesajda firma adı yoksa gönderenin WhatsApp profil adı (varsa) kullanılır
+  const profilAdi = CONFIG.GONDERICI_ADI_FIRMA ? firmaTemizle(msg.pushName) : '';
   for (const i of ilanlar) {
+    if (!i.firma && profilAdi) i.firma = profilAdi;
     if (i.tur === 'ARAC' && CONFIG.BOS_ARAC_ATLA) continue;
     if (mukerrerMi(i)) { ist.mukerrer++; continue; }
     ist.ilan++;
-    console.log(`⚡ [${i.tur === 'ARAC' ? 'BOŞ ARAÇ' : 'İLAN'}] ${i.nereden} ➡️ ${i.nereye} | ${i.arac_tipi} | ${i.telefon}`);
+    console.log(`⚡ [${i.tur === 'ARAC' ? 'BOŞ ARAÇ' : 'İLAN'}] ${i.firma ? i.firma + ' | ' : ''}${i.nereden} ➡️ ${i.nereye} | ${i.arac_tipi} | ${i.telefon}`);
     sbKuyrugaEkle(sbSatiri(i));
     telegramaGonder(i);
   }
@@ -294,7 +330,7 @@ ${durum.kod ? `<p><b>📱 EŞLEŞTİRME KODU</b></p><div class="k">${htmlKacis(d
 ${durum.qr ? `<img src="${durum.qr}" alt="QR"><p>Kamera ile QR kodu okutun.</p>` : ''}
 ${bagli ? '<p>Bot bağlı, grupları dinliyor…</p>' : ''}
 <p class="s">Açık kalma: ${sureMetni(Date.now() - durum.baslangic)} · Son mesaj: ${durum.sonMesaj ? sureMetni(Date.now() - durum.sonMesaj) + ' önce' : 'yok'}<br>
-Mesaj: ${ist.mesaj} · İlan: ${ist.ilan} · Mükerrer: ${ist.mukerrer}<br>Supabase: ${ist.sbKayit} kayıt (${sbKuyruk.length} sırada, ${ist.sbHata} hata)</p>
+Mesaj: ${ist.mesaj} · İlan: ${ist.ilan} · Mükerrer: ${ist.mukerrer} · Yabancı engel: ${retSayac.yabanci || 0}<br>Supabase: ${ist.sbKayit} kayıt (${sbKuyruk.length} sırada, ${ist.sbHata} hata)</p>
 </div></body></html>`;
 }
 
@@ -443,11 +479,11 @@ function main() {
   setInterval(() => sbBosalt(), 5000);
   setInterval(() => {
     const mb = Math.round(process.memoryUsage().rss / 1048576);
-    console.log(`📊 Saatlik özet → mesaj: ${ist.mesaj}, ilan: ${ist.ilan}, mükerrer: ${ist.mukerrer}, supabase: ${ist.sbKayit} (hata ${ist.sbHata}), bellek: ${mb} MB | ret: ${JSON.stringify(retSayac)}`);
+    console.log(`📊 Saatlik özet → mesaj: ${ist.mesaj}, ilan: ${ist.ilan}, mükerrer: ${ist.mukerrer}, yabancı: ${retSayac.yabanci || 0}, supabase: ${ist.sbKayit} (hata ${ist.sbHata}), bellek: ${mb} MB | ret: ${JSON.stringify(retSayac)}`);
   }, 60 * 60 * 1000);
 
   baglan();
 }
 
 if (require.main === module) main();
-module.exports = { CONFIG, sbSatiri, mukerrerMi };
+module.exports = { CONFIG, sbSatiri, mukerrerMi, telegramMetni };
