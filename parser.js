@@ -147,7 +147,13 @@ const SPAM = [
   /\bradar\b|\bceza yedik\b|\bmazot fiyat\w*|\bkantar acik\b|\bgrup kural\w*|\bgruba katil\w*|\bsaat kac\b/,
   /\bkapora\b|\bguvenli odeme\b|\bparana sahip\b/,
   /\b(?:bahis|iddaa|casino|forex|kumar|yatirim)\b/,
-  /\b(?:hayirli|gecmis|basin sagligi|allah rahmet|mevlid|cuma mesaj\w*|bayraminiz|kutlu olsun)\b/
+  /\b(?:hayirli|gecmis|basin sagligi|allah rahmet|mevlid|cuma mesaj\w*|bayraminiz|kutlu olsun)\b/,
+  // Başka uygulama / kanal reklamları (ilan satırı olarak yayınlanmaz)
+  /\bgetir nakliye\b|\bucretsiz indir\w*|\bdiger ilanlar icin\b|\b(?:google play|play store|app store|apk)\b/,
+  /^(?:android|ios|iphone)(?: (?:android|ios|iphone))*$/,
+  /\buygulama\w*\b.{0,25}\b(?:indir\w*|yukle\w*)\b|\b(?:indir\w*)\b.{0,20}\b(?:android|ios)\b/,
+  /\b(?:kanalimiza|kanalimiz|bizi takip|abone ol\w*|takip edin)\b/,
+  /\bilanlari\s+\d+\s+ilan\b/
 ];
 const SINYAL = /\b(?:yuk\w*|arac\w*|tir\w*|kamyon\w*|dorse\w*|ton\w*|palet\w*|parsiyel|komple|koli|sefer\w*|nakliye\w*|navlun|cekici\w*|konteyner\w*|sevkiyat\w*|lazim|aranir|araniyor|ariyoruz|ariyorum|musait\w*|bos\w*|frigo\w*|damper\w*|kirkayak|lowbed|teker\w*|tenteli|kapali|acik|fiyat|kdv|odeme|cikis\w*|donus\w*|13 60)\b/;
 
