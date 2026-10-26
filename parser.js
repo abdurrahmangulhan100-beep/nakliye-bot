@@ -143,8 +143,10 @@ const LISTE_SABLON = [
   /\byan\s+acik\s+frigo\s+damperli\b/,
   /\bsurucu arkadaslar\b.{0,50}\bwhatsapp\w*/,
   /\bbana whatsapp\w*\b.{0,25}\bmesaj\b/,
-  /\bbugun yapilacak sevkiyat\b|\bbugunun kaliteli yuk\w*/
+  /\bbugun yapilacak sevkiyat\b|\bbugunun kaliteli yuk\w*/,
+  /\bwhatsapp\w*\s+uzerinden\b.{0,30}\b(?:iletisim|mesaj)\b|\bbenimle iletisim kurun\b/
 ];
+const LISTE_CIFT_TIRE_ESIK = 8; // "A--B" biçiminde dizilmiş rota satırı sayısı
 const LISTE_ROTA_ESIK = 10;   // 2+ yer geçen satır sayısı
 const LISTE_OLCU_ESIK = 6;    // kg/ton/palet geçen satır sayısı
 const OLCU_SATIRI = /\d\s?(?:kg|ton|palet)/;
@@ -328,6 +330,8 @@ function ilanlariAyristir(hamMesaj, secenek = {}) {
     const rotaSatir = satirlar.filter(x => !x.ayrac && x.yer.length >= 2).length;
     const olcuSatir = satirlar.filter(x => OLCU_SATIRI.test(x.n)).length;
     if (rotaSatir >= LISTE_ROTA_ESIK && olcuSatir >= LISTE_OLCU_ESIK) return RET('liste_spam');
+    const ciftTire = satirlar.filter(x => /\S\s?--\s?\S/.test(x.raw)).length;
+    if (ciftTire >= LISTE_CIFT_TIRE_ESIK) return RET('liste_spam');
   }
   const tumTel = [...new Set(satirlar.flatMap(s => s.tel))];
   if (!tumTel.length && !gondericiTel) return RET(spamVar ? 'spam' : 'telefon_yok');
