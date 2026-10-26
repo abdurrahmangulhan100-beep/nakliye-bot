@@ -382,7 +382,7 @@ function ilanlariAyristir(hamMesaj, secenek = {}) {
   const parcalarD = satirlar.filter(x => !x.ayrac && !x.sadeceTel)
     .map(x => temizSatir(x))
     .filter((t, k) => { const x = satirlar.filter(y => !y.ayrac && !y.sadeceTel)[k]; return detayaUygunMu(t, x.tel.length > 0, x.yer.length > 0); });
-  let detay = [...new Set(parcalarD)].join(' • ');
+  let detay = [...new Set(parcalarD)].join('\n');
   if (detay.length > 1500) detay = detay.slice(0, 1499).trimEnd() + '…';
   if (detay.length < 8) return RET('detay_bos');
 
@@ -403,7 +403,7 @@ function ilanlariAyristir(hamMesaj, secenek = {}) {
 
   const tel = tumTel[0] || gondericiTel;
   if (!tel) return RET('telefon_yok');
-  if (tumTel.length > 1) detay += ` • Diğer tel: ${tumTel.slice(1, 3).map(telefonBicimle).join(', ')}`;
+  if (tumTel.length > 1) detay += `\nDiğer tel: ${tumTel.slice(1, 3).map(telefonBicimle).join(', ')}`;
 
   return {
     ilanlar: [{
