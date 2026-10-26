@@ -137,6 +137,18 @@ function yerleriBul(satir) {
 
 // ───────────────────────── Spam ─────────────────────────
 const URL_RE = /(?:https?:\/\/|www\.)\S+|chat\.whatsapp\.com\/\S*|\bt\.me\/\S*|\bbit\.ly\/\S*/gi;
+// Toplu "sevkiyat listesi" spam'i: aynı şablonla yüzlerce rota dizen mesajlar (tek satır değil, mesajın tamamı atılır)
+const LISTE_SABLON = [
+  /kapali\s+tenteli\s+yuksek\s+yan/,
+  /\byan\s+acik\s+frigo\s+damperli\b/,
+  /\bsurucu arkadaslar\b.{0,50}\bwhatsapp\w*/,
+  /\bbana whatsapp\w*\b.{0,25}\bmesaj\b/,
+  /\bbugun yapilacak sevkiyat\b|\bbugunun kaliteli yuk\w*/
+];
+const LISTE_ROTA_ESIK = 10;   // 2+ yer geçen satır sayısı
+const LISTE_OLCU_ESIK = 6;    // kg/ton/palet geçen satır sayısı
+const OLCU_SATIRI = /\d\s?(?:kg|ton|palet)/;
+
 const SPAM = [
   /\b(?:sofor|kaptan|eleman|personel)\b.{0,30}\b(?:aran\w*|ariyor\w*|lazim|gerek\w*|alinacak|alinir)\b/,
   /\bcalisma arkadasi\b/,
@@ -284,6 +296,7 @@ function ilanlariAyristir(hamMesaj, secenek = {}) {
   const cevrilmis = waLinkiniNumarayaCevir(hamMesaj);
   if (cevrilmis.length < 8) return RET('cok_kisa');
   if (cevrilmis.length > 4000) return RET('cok_uzun');
+  { const nTum = normalize(cevrilmis.replace(URL_RE, ' ')); if (LISTE_SABLON.some(r => r.test(nTum))) return RET('liste_spam'); }
 
   // Yurt dışı yükleri (Irak, Almanya, Erbil, KKTC...) baştan ele: mesajın herhangi bir yerinde geçmesi yeterli
   if (secenek.yabanciEngelle !== false) {
@@ -310,6 +323,11 @@ function ilanlariAyristir(hamMesaj, secenek = {}) {
       yer: (AYRAC.test(raw) || sadeceTel) ? [] : yerleriBul(govde),
       bolum: 0
     });
+  }
+  {
+    const rotaSatir = satirlar.filter(x => !x.ayrac && x.yer.length >= 2).length;
+    const olcuSatir = satirlar.filter(x => OLCU_SATIRI.test(x.n)).length;
+    if (rotaSatir >= LISTE_ROTA_ESIK && olcuSatir >= LISTE_OLCU_ESIK) return RET('liste_spam');
   }
   const tumTel = [...new Set(satirlar.flatMap(s => s.tel))];
   if (!tumTel.length && !gondericiTel) return RET(spamVar ? 'spam' : 'telefon_yok');
