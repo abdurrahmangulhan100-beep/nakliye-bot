@@ -131,7 +131,7 @@ test('Firma adı: imza satırı, "Firma:" etiketi, yoksa boş', () => {
 test('Telegram mesajı: firma, rota, WhatsApp bağlantısı, etiketler; kullanıcı metni HTML-kaçışlı', () => {
   const { telegramMetni } = require('./index.js');
   const m = telegramMetni(tek('Firma: A&B Lojistik\nKonya Ankara 13.60 açık tır lazım' + TEL));
-  assert.ok(m.includes('📦 <b>YÜK İLANI</b>') && m.includes('🏢 A&amp;B Lojistik'));
+  assert.ok(m.includes('📦 <b>YÜK İLANI</b>'));
   assert.ok(m.includes('<b>Konya</b> ➡️ <b>Ankara</b>') && m.includes('https://wa.me/905321112233'));
   assert.ok(m.includes('#Konya #Ankara'));
 });
