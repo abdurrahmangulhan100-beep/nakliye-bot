@@ -119,7 +119,7 @@ test('Yurt içi yükler yanlışlıkla engellenmez (Habur, mısır, Bağdat Cad.
   assert.equal(rota("Konya'dan Ankara'ya lastik tire yükü var" + TEL), 'Konya -> Ankara');
 });
 test('Yabancı engeli kapatılabilir', () => {
-  assert.equal(ilanlariAyristir('Konya Irak tır lazım' + TEL, { yabanciEngelle: false }).ret, null);
+  assert.equal(ilanlariAyristir("Konya'dan Irak'a tır lazım" + TEL, { yabanciEngelle: false }).ret, null);
 });
 test('Firma adı: imza satırı, "Firma:" etiketi, yoksa boş', () => {
   const emir = tek('📍Konya Ilgın yükleme\n🚛 1 araç lazım tonu 900 TL\n✋HEMEN YÜKLER\n🇹🇷EMİRCAN LOJİSTİK\n📲 0 552 947 88 83');
@@ -134,4 +134,16 @@ test('Telegram mesajı: firma, rota, WhatsApp bağlantısı, etiketler; kullanı
   assert.ok(m.includes('📦 <b>YÜK İLANI</b>'));
   assert.ok(m.includes('<b>Konya</b> ➡️ <b>Ankara</b>') && m.includes('https://wa.me/905321112233'));
   assert.ok(m.includes('#Konya #Ankara'));
+});
+
+// ───────── v3.2: temizlik kuralları ─────────
+test('Bugünkü yükleme duyuruları spam sayılır', () => {
+  assert.deepEqual(al('Bugünkü yüklemeler Konya Ankara tır' + TEL), []);
+});
+test('Nakliye hizmeti / depolama / kampanya reklamları atılır', () => {
+  for (const m of ['Türkiye geneli nakliyat hizmeti veriyoruz Konya Ankara', 'Eşya depolama ambalaj Konya Ankara tır', 'Konya Ankara tır kampanya indirim'])
+    assert.deepEqual(al(m + TEL), [], m);
+});
+test('Telefonsuz mesaj atılır', () => {
+  assert.equal(ilanlariAyristir('Konya Ankara 13.60 açık tır lazım').ret, 'telefon_yok');
 });
