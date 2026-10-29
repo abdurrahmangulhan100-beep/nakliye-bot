@@ -15,6 +15,7 @@
  *   TELEGRAM_BOT_TOKEN, TELEGRAM_KANAL_ID    (boşsa Telegram kapalı)
  *   SUPABASE_TABLO=bot_listings   SUPABASE_TELEFON_KOLONU=   (tabloda telefon kolonu varsa adı)
  *   ILAN_OMRU_SAAT=10   MUKERRER_SAAT=6   MAX_MESAJ_YASI_DK=45
+ *   AYLIK_LIMIT_MB=900   TELEGRAM_KAPAT_YUZDE=90   TELEFON_LIMIT=0   TRAFIK_BASLANGIC_MB=0   (aylık trafik koruması)
  *   ENGELLI_GRUPLAR=grup adı parçası,...   BOS_ARAC_ILANLARINI_ATLA=false
  *   TEK_SEHIRLI_ILAN_KABUL=true   GONDERICI_NUMARASINI_KULLAN=false
  *   YABANCI_ILANLARI_ENGELLE=true   (Irak, Almanya, Erbil, KKTC... geçen ilanlar atılır)
@@ -60,6 +61,12 @@ const CONFIG = {
   YABANCI_ENGELLE: bool(env.YABANCI_ILANLARI_ENGELLE, true),
   GONDERICI_ADI_FIRMA: bool(env.GONDERICI_ADINI_FIRMA_KULLAN, true),
   VARSAYILAN_FIRMA: env.VARSAYILAN_FIRMA || 'WhatsApp Lojistik Akışı',
+  // Google Cloud ücretsiz dilim: aylık 1 GB giden trafik. Varsayılan bütçe 900 MB (pay bırakır)
+  AYLIK_LIMIT_MB: sayi(env.AYLIK_LIMIT_MB, 900),
+  TELEGRAM_KAPAT_YUZDE: sayi(env.TELEGRAM_KAPAT_YUZDE, 90),   // bütçenin %90'ında Telegram susar
+  TELEFON_LIMIT: sayi(env.TELEFON_LIMIT, 0),                  // 0 = sınırsız (aynı telefondan MUKERRER_SAAT içinde en çok kaç ilan)
+  TRAFIK_BASLANGIC_MB: sayi(env.TRAFIK_BASLANGIC_MB, 0),      // ilk kurulumda bu ay zaten harcanan (GCP konsolundan)
+  TRAFIK_DOSYA: env.TRAFIK_DOSYA || path.join(env.AUTH_DIR ? path.dirname(env.AUTH_DIR) : __dirname, 'trafik.json'),
   ENGELLI_GRUPLAR: ['ilgin mot tas kopp', ...(env.ENGELLI_GRUPLAR || '').split(',')].map(normalize).filter(Boolean)
 };
 
@@ -69,6 +76,46 @@ const retSayac = {};
 const bekle = (ms) => new Promise(r => setTimeout(r, ms));
 const kisalt = (m, n) => (m && m.length > n ? m.slice(0, n - 1).trimEnd() + '…' : m || '');
 const htmlKacis = (t) => String(t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+// ═══════════════ 1b. AYLIK TRAFİK KORUMASI (Google Cloud 1 GB giden) ═══════════════
+// VM'nin gerçek giden trafiği /proc/net/dev'den okunur (Google'ın saydığına en yakın değer), ay bazında dosyada tutulur.
+const ayAnahtari = () => new Date().toISOString().slice(0, 7);
+const trafik = { ay: ayAnahtari(), toplam: CONFIG.TRAFIK_BASLANGIC_MB * 1048576, son: null };
+const butce = { telegramKapali: false, durdu: false };
+function agTxBayt() {
+  try {
+    let top = 0;
+    for (const s of fs.readFileSync('/proc/net/dev', 'utf8').split('\n').slice(2)) {
+      const [ad, geri] = s.split(':'); if (!geri) continue;
+      if (/^(lo|docker|veth|br-|virbr)/.test(ad.trim())) continue;
+      top += Number(geri.trim().split(/\s+/)[8]) || 0;
+    }
+    return top;
+  } catch { return null; }
+}
+try { Object.assign(trafik, JSON.parse(fs.readFileSync(CONFIG.TRAFIK_DOSYA, 'utf8'))); } catch { /* ilk çalışma */ }
+const trafikMB = () => trafik.toplam / 1048576;
+const trafikYuzde = () => Math.round(trafikMB() / CONFIG.AYLIK_LIMIT_MB * 100);
+function trafikGuncelle() {
+  const simdi = agTxBayt();
+  if (simdi !== null) {
+    if (trafik.son !== null) trafik.toplam += simdi >= trafik.son ? simdi - trafik.son : simdi; // sayaç düştüyse VM yeniden başlamıştır
+    trafik.son = simdi;
+  }
+  if (trafik.ay !== ayAnahtari()) { trafik.ay = ayAnahtari(); trafik.toplam = 0; console.log('📅 Yeni ay: trafik sayacı sıfırlandı.'); }
+  try { fs.writeFileSync(CONFIG.TRAFIK_DOSYA, JSON.stringify(trafik)); } catch { /* yazılamazsa sayaç bellekte devam eder */ }
+
+  const y = trafikYuzde();
+  const tgKapali = y >= CONFIG.TELEGRAM_KAPAT_YUZDE;
+  if (tgKapali !== butce.telegramKapali) { butce.telegramKapali = tgKapali; console.log(tgKapali ? `🔕 Trafik %${y}: Telegram gönderimi durduruldu.` : '🔔 Telegram gönderimi yeniden açıldı.'); tgKuyruk.length = 0; }
+  if (y >= 100 && !butce.durdu) {
+    butce.durdu = true; durum.baglanti = 'durduruldu';
+    console.warn(`⛔ Aylık trafik bütçesi doldu (${Math.round(trafikMB())} MB). WhatsApp dinleme ay başına kadar durduruldu.`);
+    try { aktifSock?.ev.removeAllListeners('messages.upsert'); aktifSock?.end(undefined); } catch { /* zaten kapalı */ }
+  } else if (y < 100 && butce.durdu) {
+    butce.durdu = false; console.log('▶️ Yeni ay: WhatsApp dinleme yeniden başlıyor.'); yenidenPlanla(1000);
+  }
+}
 
 // ═══════════════ 2. MÜKERRER KONTROLÜ ═══════════════
 const gorulenIlanlar = new Map(); // anahtar → zaman
@@ -80,6 +127,15 @@ function mukerrerMi(i) {
   if (t && simdi - t < CONFIG.MUKERRER_SAAT * 3600 * 1000) return true;
   gorulenIlanlar.set(k, simdi);
   return false;
+}
+// Aynı telefondan kısa sürede yağan ilanlar (spam / aynı yükü her gruba farklı yazma) kısıtlanır
+const telefonSayac = new Map(); // telefon → [zaman, ...]
+function telefonLimitAsildi(tel) {
+  if (!CONFIG.TELEFON_LIMIT) return false;
+  const simdi = Date.now(); const pencere = CONFIG.MUKERRER_SAAT * 3600 * 1000;
+  const liste = (telefonSayac.get(tel) || []).filter(t => simdi - t < pencere);
+  if (liste.length >= CONFIG.TELEFON_LIMIT) { telefonSayac.set(tel, liste); return true; }
+  liste.push(simdi); telefonSayac.set(tel, liste); return false;
 }
 
 // ═══════════════ 3. SUPABASE (toplu kayıt kuyruğu) ═══════════════
@@ -203,7 +259,7 @@ function telegramMetni(i) {
   ].filter(x => x !== null).join('\n');
 }
 function telegramaGonder(i) {
-  if (!CONFIG.TELEGRAM_BOT_TOKEN || !CONFIG.TELEGRAM_KANAL_ID) return;
+  if (!CONFIG.TELEGRAM_BOT_TOKEN || !CONFIG.TELEGRAM_KANAL_ID || butce.telegramKapali) return;
   const metin = telegramMetni(i);
   if (tgKuyruk.length > 500) tgKuyruk.shift();
   tgKuyruk.push(metin);
@@ -211,7 +267,7 @@ function telegramaGonder(i) {
 }
 async function tgIsle() {
   tgCalisiyor = true;
-  while (tgKuyruk.length) {
+  while (tgKuyruk.length && !butce.telegramKapali) {
     const metin = tgKuyruk[0];
     try {
       const r = await fetch(`https://api.telegram.org/bot${CONFIG.TELEGRAM_BOT_TOKEN}/sendMessage`, {
@@ -300,6 +356,7 @@ async function mesajiIsle(sock, msg) {
     if (!i.firma && profilAdi) i.firma = profilAdi;
     if (i.tur === 'ARAC' && CONFIG.BOS_ARAC_ATLA) continue;
     if (mukerrerMi(i)) { ist.mukerrer++; continue; }
+    if (telefonLimitAsildi(i.telefon_ham)) { retSayac.telefon_limit = (retSayac.telefon_limit || 0) + 1; continue; }
     ist.ilan++;
     console.log(`⚡ [${i.tur === 'ARAC' ? 'BOŞ ARAÇ' : 'İLAN'}] ${i.firma ? i.firma + ' | ' : ''}${i.nereden} ➡️ ${i.nereye} | ${i.arac_tipi} | ${i.telefon}`);
     sbKuyrugaEkle(sbSatiri(i));
@@ -330,7 +387,7 @@ ${durum.kod ? `<p><b>📱 EŞLEŞTİRME KODU</b></p><div class="k">${htmlKacis(d
 ${durum.qr ? `<img src="${durum.qr}" alt="QR"><p>Kamera ile QR kodu okutun.</p>` : ''}
 ${bagli ? '<p>Bot bağlı, grupları dinliyor…</p>' : ''}
 <p class="s">Açık kalma: ${sureMetni(Date.now() - durum.baslangic)} · Son mesaj: ${durum.sonMesaj ? sureMetni(Date.now() - durum.sonMesaj) + ' önce' : 'yok'}<br>
-Mesaj: ${ist.mesaj} · İlan: ${ist.ilan} · Mükerrer: ${ist.mukerrer} · Yabancı engel: ${retSayac.yabanci || 0}<br>Supabase: ${ist.sbKayit} kayıt (${sbKuyruk.length} sırada, ${ist.sbHata} hata)</p>
+Mesaj: ${ist.mesaj} · İlan: ${ist.ilan} · Mükerrer: ${ist.mukerrer} · Yabancı engel: ${retSayac.yabanci || 0}<br>Supabase: ${ist.sbKayit} kayıt (${sbKuyruk.length} sırada, ${ist.sbHata} hata)<br>Bu ay giden trafik: ${Math.round(trafikMB())} / ${CONFIG.AYLIK_LIMIT_MB} MB (%${trafikYuzde()})${butce.telegramKapali ? ' · Telegram kapalı' : ''}${butce.durdu ? ' · DURDURULDU' : ''}</p>
 </div></body></html>`;
 }
 
@@ -348,7 +405,7 @@ function sunucuyuBaslat() {
     }
     if (url.pathname === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-      return res.end(JSON.stringify({ durum: durum.baglanti, sonMesajDkOnce: durum.sonMesaj ? Math.floor((Date.now() - durum.sonMesaj) / 60000) : null, sbKuyruk: sbKuyruk.length, ...ist, ret: retSayac }));
+      return res.end(JSON.stringify({ durum: durum.baglanti, sonMesajDkOnce: durum.sonMesaj ? Math.floor((Date.now() - durum.sonMesaj) / 60000) : null, sbKuyruk: sbKuyruk.length, trafikMB: Math.round(trafikMB()), trafikYuzde: trafikYuzde(), ...ist, ret: retSayac }));
     }
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('Nakliye Cepte WhatsApp Botu aktif');
@@ -361,12 +418,14 @@ function sunucuyuBaslat() {
 // ═══════════════ 7. WHATSAPP BAĞLANTISI ═══════════════
 let yenidenDeneme = 0;
 let yenidenZamanlayici = null;
+let aktifSock = null;
 function yenidenPlanla(ms) {
-  if (yenidenZamanlayici) return;
+  if (yenidenZamanlayici || butce.durdu) return;
   yenidenZamanlayici = setTimeout(() => { yenidenZamanlayici = null; baglan(); }, ms);
 }
 
 async function baglan() {
+  if (butce.durdu) return;
   try {
     const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion, useMultiFileAuthState, Browsers } = require('@whiskeysockets/baileys');
     const QRCode = require('qrcode');
@@ -387,8 +446,11 @@ async function baglan() {
       markOnlineOnConnect: false,          // telefonda bildirimleri susturmasın
       syncFullHistory: false,
       shouldSyncHistoryMessage: () => false,
-      generateHighQualityLinkPreview: false
+      generateHighQualityLinkPreview: false,
+      // Durum (status) ve özel sohbetler işlenmez: gereksiz çözme / yeniden deneme trafiği oluşmasın
+      shouldIgnoreJid: (j) => j === 'status@broadcast' || /@(s\.whatsapp\.net|lid)$/.test(j)
     });
+    aktifSock = sock;
 
     let eslestirmeIstendi = false;
     sock.ev.on('creds.update', saveCreds);
@@ -453,6 +515,7 @@ function bellekTemizle() {
   const simdi = Date.now();
   for (const [k, t] of islenenMesajlar) if (simdi - t > 30 * 60 * 1000) islenenMesajlar.delete(k);
   for (const [k, t] of gorulenIlanlar) if (simdi - t > CONFIG.MUKERRER_SAAT * 3600 * 1000) gorulenIlanlar.delete(k);
+  for (const [k, l] of telefonSayac) if (!l.length || simdi - l[l.length - 1] > CONFIG.MUKERRER_SAAT * 3600 * 1000) telefonSayac.delete(k);
   for (const [k, v] of grupAdlari) if (simdi - v.zaman > 24 * 3600 * 1000) grupAdlari.delete(k);
 }
 
@@ -477,9 +540,11 @@ function main() {
   setInterval(eskiIlanlariTemizle, 30 * 60 * 1000);
   setInterval(bellekTemizle, 10 * 60 * 1000);
   setInterval(() => sbBosalt(), 5000);
+  trafikGuncelle();
+  setInterval(trafikGuncelle, 60 * 1000);
   setInterval(() => {
     const mb = Math.round(process.memoryUsage().rss / 1048576);
-    console.log(`📊 Saatlik özet → mesaj: ${ist.mesaj}, ilan: ${ist.ilan}, mükerrer: ${ist.mukerrer}, yabancı: ${retSayac.yabanci || 0}, supabase: ${ist.sbKayit} (hata ${ist.sbHata}), bellek: ${mb} MB | ret: ${JSON.stringify(retSayac)}`);
+    console.log(`📊 Saatlik özet → trafik: ${Math.round(trafikMB())}/${CONFIG.AYLIK_LIMIT_MB} MB, mesaj: ${ist.mesaj}, ilan: ${ist.ilan}, mükerrer: ${ist.mukerrer}, yabancı: ${retSayac.yabanci || 0}, supabase: ${ist.sbKayit} (hata ${ist.sbHata}), bellek: ${mb} MB | ret: ${JSON.stringify(retSayac)}`);
   }, 60 * 60 * 1000);
 
   baglan();
