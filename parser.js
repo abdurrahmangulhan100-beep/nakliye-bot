@@ -144,6 +144,7 @@ const LISTE_SABLON = [
   /\bsurucu arkadaslar\b.{0,50}\bwhatsapp\w*/,
   /\bbana whatsapp\w*\b.{0,25}\bmesaj\b/,
   /\bbugun yapilacak sevkiyat\b|\bbugunun kaliteli yuk\w*/,
+  /\bbugunku\s+(?:yukleme\w*|yukler|nakliye\w*|sevkiyat\w*)\b|\bbugun\s+yukleme\w*\s+(?:listesi|yapilacak)\b|\bgunun\s+yukleri\b/,
   /\bwhatsapp\w*\s+uzerinden\b.{0,30}\b(?:iletisim|mesaj)\b|\bbenimle iletisim kurun\b/
 ];
 const LISTE_CIFT_TIRE_ESIK = 8; // "A--B" biçiminde dizilmiş rota satırı sayısı
@@ -167,7 +168,11 @@ const SPAM = [
   /^(?:android|ios|iphone)(?: (?:android|ios|iphone))*$/,
   /\buygulama\w*\b.{0,25}\b(?:indir\w*|yukle\w*)\b|\b(?:indir\w*)\b.{0,20}\b(?:android|ios)\b/,
   /\b(?:kanalimiza|kanalimiz|bizi takip|abone ol\w*|takip edin)\b/,
-  /\bilanlari\s+\d+\s+ilan\b/
+  /\bilanlari\s+\d+\s+ilan\b/,
+  // Nakliye hizmeti / firma reklamı (yük ilanı değil)
+  /\bhizmet(?:i|imiz|leri|lerimiz)?\b.{0,30}\b(?:veriyoruz|sunuyoruz|verilir|vermekteyiz|sunulur)\b/,
+  /\bnakliyat hizmet\w*|\bsehirler ?arasi nakliyat\b|\bsehir ici nakliyat\b|\bparca esya\b/,
+  /\b(?:depolama|ambalaj|paketleme|montaj|demontaj)\b|\bkampanya\w*|\bindirim\w*|\bsigortali tasima\b|\bekonomik fiyat\w*/
 ];
 const SINYAL = /\b(?:yuk\w*|arac\w*|tir\w*|kamyon\w*|dorse\w*|ton\w*|palet\w*|parsiyel|komple|koli|sefer\w*|nakliye\w*|navlun|cekici\w*|konteyner\w*|sevkiyat\w*|lazim|aranir|araniyor|ariyoruz|ariyorum|musait\w*|bos\w*|frigo\w*|damper\w*|kirkayak|lowbed|teker\w*|tenteli|kapali|acik|fiyat|kdv|odeme|cikis\w*|donus\w*|13 60)\b/;
 
@@ -373,7 +378,7 @@ function ilanlariAyristir(hamMesaj, secenek = {}) {
       const son = tekler[tekler.length - 1];
       if (ctx) ekle2(ctx.yer, y[0]);
       else if (son && son.idx === i - 1 && !hedefKelime && son.yer.rol !== 'varis' && y[0].rol !== 'cikis') { tekler.pop(); ekle2(son.yer, y[0]); } // "Bayburt\nKayseri"
-      else tekler.push({ yer: y[0], idx: i, cikis: y[0].rol === 'cikis' || y[0].rol === 'konum' });
+      else tekler.push({ yer: y[0], idx: i, cikis: y[0].rol === 'cikis' || y[0].rol === 'konum', varis: y[0].rol === 'varis' });
       return;
     }
 
