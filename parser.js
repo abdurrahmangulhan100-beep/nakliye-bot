@@ -143,6 +143,7 @@ const LISTE_SABLON = [
   /\byan\s+acik\s+frigo\s+damperli\b/,
   /\bsurucu arkadaslar\b.{0,50}\bwhatsapp\w*/,
   /\bbana whatsapp\w*\b.{0,25}\bmesaj\b/,
+  /\bbugun planlanan\b|\bplanlanan\s+tasima\w*/,
   /\bbugun yapilacak sevkiyat\b|\bbugunun kaliteli yuk\w*/,
   /\bbugunku\s+(?:yukleme\w*|yukler|nakliye\w*|sevkiyat\w*)\b|\bbugun\s+yukleme\w*\s+(?:listesi|yapilacak)\b|\bgunun\s+yukleri\b/,
   /\bwhatsapp\w*\s+uzerinden\b.{0,30}\b(?:iletisim|mesaj)\b|\bbenimle iletisim kurun\b/
@@ -448,7 +449,8 @@ function ilanlariAyristir(hamMesaj, secenek = {}) {
       firma: firmaBul(satirlar),
       telefon_ham: tel,
       telefon: telefonBicimle(tel),
-      anahtar: ilanAnahtari(detay, tel)
+      anahtar: ilanAnahtari(detay, tel),
+      anahtar2: ilanAnahtari2(satirlar, tel)
     }],
     ret: null
   };
@@ -459,4 +461,17 @@ function ilanAnahtari(detay, tel) {
   return `${normalize(String(detay).replace(/^\[BOŞ ARAÇ\]\s*/, '')).slice(0, 240)}|${String(tel).replace(/\D/g, '')}`;
 }
 
-module.exports = { firmaTemizle, ilanlariAyristir, ilanAnahtari, yerleriBul, aracTipiTespit, telefonlariBul, telefonNormalize, telefonBicimle, normalize, yerMetni };
+// Gevşek mükerrer anahtarı: aynı telefon + aynı yer kümesi + aynı tonaj/palet sayıları.
+// Aynı kişi ilanı kelime/isim değiştirerek tekrar atsa da ("YAKUP HASAN" / "YAKUPOĞLAN") tek ilan sayılır.
+function ilanAnahtari2(satirlar, tel) {
+  const yerler = new Set();
+  const olcu = new Set();
+  for (const s of satirlar) {
+    for (const y of s.yer || []) yerler.add(normalize(y.ilce || y.il));
+    for (const m of String(s.n || '').matchAll(/(\d+(?:\s?\d+)?)\s?(?:ton|tn|palet|kg)\w*/g)) olcu.add(m[1].replace(/\s/g, ''));
+  }
+  if (!yerler.size) return null;
+  return `${[...yerler].sort().join(',')}|${[...olcu].sort().join(',')}|${String(tel).replace(/\D/g, '')}`;
+}
+
+module.exports = { ilanAnahtari2, firmaTemizle, ilanlariAyristir, ilanAnahtari, yerleriBul, aracTipiTespit, telefonlariBul, telefonNormalize, telefonBicimle, normalize, yerMetni };
