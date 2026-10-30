@@ -121,11 +121,11 @@ function trafikGuncelle() {
 const gorulenIlanlar = new Map(); // anahtar → zaman
 
 function mukerrerMi(i) {
-  const k = i.anahtar;
-  const t = gorulenIlanlar.get(k);
   const simdi = Date.now();
-  if (t && simdi - t < CONFIG.MUKERRER_SAAT * 3600 * 1000) return true;
-  gorulenIlanlar.set(k, simdi);
+  const sure = CONFIG.MUKERRER_SAAT * 3600 * 1000;
+  const anahtarlar = [i.anahtar, i.anahtar2 ? 'g|' + i.anahtar2 : null].filter(Boolean);
+  if (anahtarlar.some(k => { const t = gorulenIlanlar.get(k); return t && simdi - t < sure; })) return true;
+  anahtarlar.forEach(k => gorulenIlanlar.set(k, simdi));
   return false;
 }
 // Aynı telefondan kısa sürede yağan ilanlar (spam / aynı yükü her gruba farklı yazma) kısıtlanır
