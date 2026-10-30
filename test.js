@@ -147,3 +147,17 @@ test('Nakliye hizmeti / depolama / kampanya reklamları atılır', () => {
 test('Telefonsuz mesaj atılır', () => {
   assert.equal(ilanlariAyristir('Konya Ankara 13.60 açık tır lazım').ret, 'telefon_yok');
 });
+
+test('"Bugün planlanan taşıma" toplu listesi engellenir', () => {
+  const r = ilanlariAyristir('Bugün planlanan taşıma\nAnkara Polatlı Afyonkarahisar Sandıklı 27ton\nAnkara Akyurt İzmir Kapalı/Frigo TIR\nKütahya Domaniç Çorum TIR\n0532 111 22 33');
+  assert.equal(r.ilanlar.length, 0);
+  assert.equal(r.ret, 'liste_spam');
+});
+test('Aynı telefon+yer+tonaj, isim değişse de aynı gevşek anahtar', () => {
+  const a = tek('KONYA İLGİN +SARAYÖNÜNDEN\nANKARA YAKUP HASAN\n14TON\nAÇIK 10TK 40AYAK TR OLUR\n0532 111 22 33');
+  const b = tek('KONYA İLGİN +SARAYÖNÜNDEN\nANKARA YAKUPOĞLAN\n14TON\nAÇIK 10TK 40AYAK TR OLUR\n0532 111 22 33');
+  assert.notEqual(a.anahtar, b.anahtar);
+  assert.equal(a.anahtar2, b.anahtar2);
+  const c = tek('KONYA İLGİN +SARAYÖNÜNDEN\nANKARA\n20TON\nAÇIK 10TK 40AYAK TR OLUR\n0532 111 22 33');
+  assert.notEqual(a.anahtar2, c.anahtar2);
+});
