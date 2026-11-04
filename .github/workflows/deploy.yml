@@ -21,5 +21,8 @@ jobs:
             cd ${{ secrets.APP_DIR }}
             git pull origin main
             npm ci --omit=dev
+            node --check index.js
+            node --check parser.js
+            npm test
             pm2 restart nakliye-bot || pm2 start index.js --name nakliye-bot
             pm2 save
