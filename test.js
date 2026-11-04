@@ -161,3 +161,30 @@ test('Aynı telefon+yer+tonaj, isim değişse de aynı gevşek anahtar', () => {
   const c = tek('KONYA İLGİN +SARAYÖNÜNDEN\nANKARA\n20TON\nAÇIK 10TK 40AYAK TR OLUR\n0532 111 22 33');
   assert.notEqual(a.anahtar2, c.anahtar2);
 });
+
+
+test('Uzun çok satırlı mesaj 4.000 karakteri geçti diye otomatik reddedilmez', () => {
+  const govde = 'Konya Ankara 13.60 kapalı dorse yük var\n' + 'Açıklama ve yükleme ayrıntısı\n'.repeat(180);
+  const r = ilanlariAyristir(govde + TEL);
+  assert.notEqual(r.ret, 'cok_uzun');
+});
+
+test('Supabase satırı ham WhatsApp mesajını aynen cargo_detail alanına koyar', () => {
+  const { sbSatiri } = require('./index.js');
+  const ham = '📍 KONYA → ANKARA\n25 TON PATATES\n0532 111 22 33';
+  const row = sbSatiri({
+    nereden: 'Konya', nereye: 'Ankara', arac_tipi: 'Kapalı Dorse',
+    firma: 'Deneme Nakliyat', telefon: '0532 111 22 33', telefon_ham: '05321112233',
+    detay: 'ayrıştırılmış özet', ham_mesaj: ham
+  });
+  assert.equal(row.cargo_detail, ham);
+  assert.equal(row.from_city, 'Konya');
+  assert.equal(row.to_city, 'Ankara');
+});
+
+
+test('Telefonu olmayan ama rota ve nakliye bilgisi içeren ilan ham modda kabul edilir', () => {
+  const r = ilanlariAyristir('Konya Ankara 13.60 kapalı dorse 24 ton yük var', { telefonZorunlu: false });
+  assert.equal(r.ilanlar.length, 1);
+  assert.equal(r.ilanlar[0].telefon_ham, null);
+});
