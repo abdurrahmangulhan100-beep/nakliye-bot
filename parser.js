@@ -303,7 +303,7 @@ function ilanlariAyristir(hamMesaj, secenek = {}) {
 
   const cevrilmis = waLinkiniNumarayaCevir(hamMesaj);
   if (cevrilmis.length < 8) return RET('cok_kisa');
-  if (cevrilmis.length > 4000) return RET('cok_uzun');
+  if (cevrilmis.length > 12000) return RET('cok_uzun');
   { const nTum = normalize(cevrilmis.replace(URL_RE, ' ')); if (LISTE_SABLON.some(r => r.test(nTum))) return RET('liste_spam'); }
 
   // Yurt dışı yükleri (Irak, Almanya, Erbil, KKTC...) baştan ele: mesajın herhangi bir yerinde geçmesi yeterli
@@ -340,7 +340,7 @@ function ilanlariAyristir(hamMesaj, secenek = {}) {
     if (ciftTire >= LISTE_CIFT_TIRE_ESIK) return RET('liste_spam');
   }
   const tumTel = [...new Set(satirlar.flatMap(s => s.tel))];
-  if (!tumTel.length && !gondericiTel) return RET(spamVar ? 'spam' : 'telefon_yok');
+  if (!tumTel.length && !gondericiTel && secenek.telefonZorunlu !== false) return RET(spamVar ? 'spam' : 'telefon_yok');
 
   // Bölüm numaraları (ayraç satırı yeni bölüm başlatır)
   let b = 0;
@@ -436,7 +436,7 @@ function ilanlariAyristir(hamMesaj, secenek = {}) {
   const arac = Object.entries(sayac).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Belirtilmedi';
 
   const tel = tumTel[0] || gondericiTel;
-  if (!tel) return RET('telefon_yok');
+  if (!tel && secenek.telefonZorunlu !== false) return RET('telefon_yok');
   if (tumTel.length > 1) detay += `\nDiğer tel: ${tumTel.slice(1, 3).map(telefonBicimle).join(', ')}`;
 
   return {
@@ -448,7 +448,7 @@ function ilanlariAyristir(hamMesaj, secenek = {}) {
       detay,
       firma: firmaBul(satirlar),
       telefon_ham: tel,
-      telefon: telefonBicimle(tel),
+      telefon: tel ? telefonBicimle(tel) : '',
       anahtar: ilanAnahtari(detay, tel),
       anahtar2: ilanAnahtari2(satirlar, tel)
     }],
@@ -458,7 +458,7 @@ function ilanlariAyristir(hamMesaj, secenek = {}) {
 
 // Mükerrer anahtarı: aynı metin + aynı telefon (aynı mesaj yüzlerce gruba atılsa tek ilan olur)
 function ilanAnahtari(detay, tel) {
-  return `${normalize(String(detay).replace(/^\[BOŞ ARAÇ\]\s*/, '')).slice(0, 240)}|${String(tel).replace(/\D/g, '')}`;
+  return `${normalize(String(detay).replace(/^\[BOŞ ARAÇ\]\s*/, '')).slice(0, 240)}|${String(tel || '').replace(/\D/g, '')}`;
 }
 
 // Gevşek mükerrer anahtarı: aynı telefon + aynı yer kümesi + aynı tonaj/palet sayıları.
