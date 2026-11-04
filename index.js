@@ -576,7 +576,7 @@ async function baglan() {
       shouldSyncHistoryMessage: () => false,
       generateHighQualityLinkPreview: false,
       // Durum (status) ve özel sohbetler işlenmez: gereksiz çözme / yeniden deneme trafiği oluşmasın
-      shouldIgnoreJid: (j) => j === 'status@broadcast' || /@(s\.whatsapp\.net|lid)$/.test(j)
+      shouldIgnoreJid: () => false
     });
     aktifSock = sock;
 
