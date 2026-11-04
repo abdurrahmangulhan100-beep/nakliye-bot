@@ -18,6 +18,9 @@
  *   AYLIK_LIMIT_MB=900   TELEGRAM_KAPAT_YUZDE=90   TELEFON_LIMIT=0   TRAFIK_BASLANGIC_MB=0   (aylık trafik koruması)
  *   ENGELLI_GRUPLAR=grup adı parçası,...   BOS_ARAC_ILANLARINI_ATLA=false
  *   TEK_SEHIRLI_ILAN_KABUL=true   GONDERICI_NUMARASINI_KULLAN=false
+ *   LINK_MODU=ayikla   (ayikla: masum link silinir ilan kalır | engelle: linkli her mesaj atılır | izin)
+ *   ENGELLI_KELIMELER=yukbul,nakliye agi   (Qmove / Bugünkü Nakliye / Getir Nakliye zaten dahili engelli; buraya ek marka yazılır)
+ *   ENGELLI_TELEFONLAR=05xxxxxxxxx,05yyyyyyyyy   (reklam/spam yapan numaralar; o numaralı mesajlar atılır)
  *   YABANCI_ILANLARI_ENGELLE=true   (Irak, Almanya, Erbil, KKTC... geçen ilanlar atılır)
  *   GONDERICI_ADINI_FIRMA_KULLAN=true   (mesajda firma adı yoksa WhatsApp profil adı kullanılır)
  *   VARSAYILAN_FIRMA=WhatsApp Lojistik Akışı   (hiçbir ad bulunamazsa)
@@ -29,6 +32,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { ilanlariAyristir, ilanAnahtari, normalize, firmaTemizle } = require('./parser');
+const { reklamKontrol, kelimeListesi, telefonListesi } = require('./reklam');
 
 // ═══════════════ 1. AYARLAR ═══════════════
 const env = process.env;
@@ -52,13 +56,16 @@ const CONFIG = {
 
   ILAN_OMRU_SAAT: sayi(env.ILAN_OMRU_SAAT, 10),
   MUKERRER_SAAT: sayi(env.MUKERRER_SAAT, 6),
-  MAX_MESAJ_YASI_DK: sayi(env.MAX_MESAJ_YASI_DK, 45),
+  MAX_MESAJ_YASI_DK: sayi(env.MAX_MESAJ_YASI_DK, 90), // bağlantı kopup gelince kaçan mesajlar da yakalansın
 
   BOS_ARAC_ATLA: bool(env.BOS_ARAC_ILANLARINI_ATLA, false),
   TEK_SEHIRLI_KABUL: bool(env.TEK_SEHIRLI_ILAN_KABUL, true),
   GONDERICI_NO: bool(env.GONDERICI_NUMARASINI_KULLAN, false),
   RET_LOG: bool(env.RET_LOG, true),
   YABANCI_ENGELLE: bool(env.YABANCI_ILANLARI_ENGELLE, true),
+  LINK_MODU: /^(engelle|izin)$/i.test(env.LINK_MODU || '') ? env.LINK_MODU.toLowerCase() : 'ayikla',
+  EK_KELIMELER: kelimeListesi(env.ENGELLI_KELIMELER),
+  ENGELLI_TEL: telefonListesi(env.ENGELLI_TELEFONLAR),
   GONDERICI_ADI_FIRMA: bool(env.GONDERICI_ADINI_FIRMA_KULLAN, true),
   VARSAYILAN_FIRMA: env.VARSAYILAN_FIRMA || 'WhatsApp Lojistik Akışı',
   // Google Cloud ücretsiz dilim: aylık 1 GB giden trafik. Varsayılan bütçe 900 MB (pay bırakır)
@@ -73,6 +80,14 @@ const CONFIG = {
 const durum = { baglanti: 'baslatiliyor', qr: null, kod: null, sonMesaj: 0, baslangic: Date.now() };
 const ist = { mesaj: 0, eski: 0, ilan: 0, mukerrer: 0, sbKayit: 0, sbHata: 0, tgGonderilen: 0, tgHata: 0 };
 const retSayac = {};
+// Kaçmış olabilecek mesajların son örnekleri (/ret?key=PANEL_KEY sayfasından görülür) — bellekte en çok 60 kayıt
+const retOrnek = [];
+const ORNEK_RET = new Set(['rota_yok', 'sinyal_yok', 'detay_bos', 'cok_uzun', 'spam']);
+const YUK_DILI = /y[uü]k|t[ıi]r\b|\bton|ara[çc]|palet|kamyon|dorse/i;
+function ornekEkle(neden, ham) {
+  retOrnek.push({ z: new Date().toISOString().slice(11, 19), neden, m: kisalt(ham.replace(/\s+/g, ' '), 220) });
+  if (retOrnek.length > 60) retOrnek.shift();
+}
 const bekle = (ms) => new Promise(r => setTimeout(r, ms));
 const kisalt = (m, n) => (m && m.length > n ? m.slice(0, n - 1).trimEnd() + '…' : m || '');
 const htmlKacis = (t) => String(t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -335,14 +350,24 @@ async function mesajiIsle(sock, msg) {
   durum.sonMesaj = Date.now();
 
   let gondericiTel = null;
-  if (CONFIG.GONDERICI_NO && (msg.key.participant || '').endsWith('@s.whatsapp.net')) {
-    const d = msg.key.participant.split('@')[0].split(':')[0];
-    gondericiTel = /^90\d{10}$/.test(d) ? '0' + d.slice(2) : null;
+  if (CONFIG.GONDERICI_NO) {
+    // Yeni WhatsApp (LID) gruplarında numara participant yerine participantPn/participantAlt içinde gelir
+    const pn = [msg.key.participantPn, msg.key.participantAlt, msg.key.participant].find(x => typeof x === 'string' && x.endsWith('@s.whatsapp.net'));
+    if (pn) { const d = pn.split('@')[0].split(':')[0]; gondericiTel = /^90\d{10}$/.test(d) ? '0' + d.slice(2) : null; }
+  }
+
+  // Reklam / marka / link filtresi (reklam.js): parser'dan önce, mesajın tamamı atılır
+  const rk = reklamKontrol(ham, { ekKelimeler: CONFIG.EK_KELIMELER, engelliTel: CONFIG.ENGELLI_TEL, linkModu: CONFIG.LINK_MODU });
+  if (rk) {
+    retSayac[rk.ret] = (retSayac[rk.ret] || 0) + 1;
+    if (CONFIG.RET_LOG) console.log(`📢 [${rk.ret}:${rk.terim}] ${kisalt(ham.replace(/\s+/g, ' '), 90)}`);
+    return;
   }
 
   const { ilanlar, ret, terim } = ilanlariAyristir(ham, { tekSehirKabul: CONFIG.TEK_SEHIRLI_KABUL, gondericiTelefon: gondericiTel, yabanciEngelle: CONFIG.YABANCI_ENGELLE });
   if (!ilanlar.length) {
     retSayac[ret] = (retSayac[ret] || 0) + 1;
+    if (ORNEK_RET.has(ret) || (ret === 'telefon_yok' && ham.length >= 25 && YUK_DILI.test(ham))) ornekEkle(ret, ham);
     if (ret === 'yabanci' && CONFIG.RET_LOG) console.log(`🌍 [YABANCI:${terim}] ${kisalt(ham.replace(/\s+/g, ' '), 100)}`);
     if (CONFIG.RET_LOG && ret !== 'cok_kisa' && ret !== 'telefon_yok' && /\d{10}/.test(ham.replace(/\D+/g, ''))) {
       console.log(`🚫 [RET:${ret}] ${kisalt(ham.replace(/\s+/g, ' '), 140)}`);
@@ -402,6 +427,11 @@ function sunucuyuBaslat() {
       }
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' });
       return res.end(panelHtml());
+    }
+    if (url.pathname === '/ret') {
+      if (!anahtarDogru(url.searchParams.get('key') || '', CONFIG.PANEL_KEY)) { res.writeHead(401); return res.end('Yetkisiz'); }
+      res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' });
+      return res.end(`Ret sayaçları: ${JSON.stringify(retSayac)}\n\nSon reddedilen (kaçmış olabilecek) mesajlar:\n` + retOrnek.slice().reverse().map(o => `${o.z} [${o.neden}] ${o.m}`).join('\n'));
     }
     if (url.pathname === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
