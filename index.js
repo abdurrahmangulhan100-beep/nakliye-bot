@@ -50,6 +50,9 @@ const CONFIG = {
   SUPABASE_KEY: env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_KEY || '',
   SUPABASE_TABLO: env.SUPABASE_TABLO || 'bot_listings',
   SUPABASE_TELEFON_KOLONU: env.SUPABASE_TELEFON_KOLONU || '',
+  // Supabase geçici olarak erişilemezse bekleyen ham ilanlar VM'nin kalıcı diskinde tutulur.
+  SB_KUYRUK_DOSYA: env.SB_KUYRUK_DOSYA || path.join(env.AUTH_DIR ? path.dirname(env.AUTH_DIR) : __dirname, 'supabase-queue.json'),
+  MUKERRER_DOSYA: env.MUKERRER_DOSYA || path.join(env.AUTH_DIR ? path.dirname(env.AUTH_DIR) : __dirname, 'mukerrer-hafiza.json'),
 
   TELEGRAM_BOT_TOKEN: env.TELEGRAM_BOT_TOKEN || '',
   TELEGRAM_KANAL_ID: env.TELEGRAM_KANAL_ID || '',
@@ -73,6 +76,7 @@ const CONFIG = {
   TELEGRAM_KAPAT_YUZDE: sayi(env.TELEGRAM_KAPAT_YUZDE, 90),   // bütçenin %90'ında Telegram susar
   TELEFON_LIMIT: sayi(env.TELEFON_LIMIT, 0),                  // 0 = sınırsız (aynı telefondan MUKERRER_SAAT içinde en çok kaç ilan)
   TRAFIK_BASLANGIC_MB: sayi(env.TRAFIK_BASLANGIC_MB, 0),      // ilk kurulumda bu ay zaten harcanan (GCP konsolundan)
+  TRAFIKTE_WHATSAPP_DURDUR: bool(env.TRAFIKTE_WHATSAPP_DURDUR, true), // ücretsiz trafik bütçesi korunur; false yapılırsa aşım ücreti riski vardır
   TRAFIK_DOSYA: env.TRAFIK_DOSYA || path.join(env.AUTH_DIR ? path.dirname(env.AUTH_DIR) : __dirname, 'trafik.json'),
   ENGELLI_GRUPLAR: ['ilgin mot tas kopp', ...(env.ENGELLI_GRUPLAR || '').split(',')].map(normalize).filter(Boolean)
 };
@@ -96,7 +100,7 @@ const htmlKacis = (t) => String(t || '').replace(/&/g, '&amp;').replace(/</g, '&
 // VM'nin gerçek giden trafiği /proc/net/dev'den okunur (Google'ın saydığına en yakın değer), ay bazında dosyada tutulur.
 const ayAnahtari = () => new Date().toISOString().slice(0, 7);
 const trafik = { ay: ayAnahtari(), toplam: CONFIG.TRAFIK_BASLANGIC_MB * 1048576, son: null };
-const butce = { telegramKapali: false, durdu: false };
+const butce = { telegramKapali: false, limitAsildi: false };
 function agTxBayt() {
   try {
     let top = 0;
@@ -123,26 +127,66 @@ function trafikGuncelle() {
   const y = trafikYuzde();
   const tgKapali = y >= CONFIG.TELEGRAM_KAPAT_YUZDE;
   if (tgKapali !== butce.telegramKapali) { butce.telegramKapali = tgKapali; console.log(tgKapali ? `🔕 Trafik %${y}: Telegram gönderimi durduruldu.` : '🔔 Telegram gönderimi yeniden açıldı.'); tgKuyruk.length = 0; }
-  if (y >= 100 && !butce.durdu) {
-    butce.durdu = true; durum.baglanti = 'durduruldu';
-    console.warn(`⛔ Aylık trafik bütçesi doldu (${Math.round(trafikMB())} MB). WhatsApp dinleme ay başına kadar durduruldu.`);
-    try { aktifSock?.ev.removeAllListeners('messages.upsert'); aktifSock?.end(undefined); } catch { /* zaten kapalı */ }
-  } else if (y < 100 && butce.durdu) {
-    butce.durdu = false; console.log('▶️ Yeni ay: WhatsApp dinleme yeniden başlıyor.'); yenidenPlanla(1000);
+  if (y >= 100 && !butce.limitAsildi) {
+    butce.limitAsildi = true;
+    butce.telegramKapali = true;
+    tgKuyruk.length = 0;
+    if (CONFIG.TRAFIKTE_WHATSAPP_DURDUR) {
+      // Ücretsiz trafik bütçesini koruyan güvenli varsayılan. Trafik hesabı yaklaşık değer verir.
+      durum.baglanti = 'trafik_limiti';
+      console.warn(`⛔ Tahmini aylık trafik bütçesi doldu (${Math.round(trafikMB())} MB). Ücretsiz kullanım sınırını korumak için WhatsApp dinlemesi durduruluyor.`);
+      try { aktifSock?.ev.removeAllListeners('messages.upsert'); aktifSock?.end(undefined); } catch { /* zaten kapalı */ }
+    } else {
+      // Kullanıcı açıkça seçerse ilan alımı devam eder; Google Cloud ücretsiz sınırı aşılırsa ücret doğabilir.
+      console.warn(`⚠️ Tahmini aylık trafik bütçesi doldu (${Math.round(trafikMB())} MB). TRAFIKTE_WHATSAPP_DURDUR=false: WhatsApp açık, ücret riski var.`);
+    }
+  } else if (y < 100 && butce.limitAsildi) {
+    butce.limitAsildi = false;
+    if (CONFIG.TRAFIKTE_WHATSAPP_DURDUR) {
+      console.log('▶️ Trafik bütçesi yeniden uygun seviyede; WhatsApp dinlemesi başlatılıyor.');
+      yenidenPlanla(1000);
+    }
   }
 }
 
 // ═══════════════ 2. MÜKERRER KONTROLÜ ═══════════════
 const gorulenIlanlar = new Map(); // anahtar → zaman
 
+const mukerrerHash = (k) => crypto.createHash('sha256').update(String(k)).digest('hex');
+function mukerrerAnahtarlari(i) {
+  return [i.anahtar, i.anahtar2 ? 'g|' + i.anahtar2 : null].filter(Boolean).map(mukerrerHash);
+}
 function mukerrerMi(i) {
   const simdi = Date.now();
   const sure = CONFIG.MUKERRER_SAAT * 3600 * 1000;
-  const anahtarlar = [i.anahtar, i.anahtar2 ? 'g|' + i.anahtar2 : null].filter(Boolean);
-  if (anahtarlar.some(k => { const t = gorulenIlanlar.get(k); return t && simdi - t < sure; })) return true;
-  anahtarlar.forEach(k => gorulenIlanlar.set(k, simdi));
-  return false;
+  return mukerrerAnahtarlari(i).some(k => {
+    const t = gorulenIlanlar.get(k);
+    return t && simdi - t < sure;
+  });
 }
+function mukerrerKaydet(i, diskeYaz = true) {
+  const simdi = Date.now();
+  mukerrerAnahtarlari(i).forEach(k => gorulenIlanlar.set(k, simdi));
+  if (!diskeYaz) return;
+  try {
+    const hedef = CONFIG.MUKERRER_DOSYA;
+    const gecici = `${hedef}.tmp`;
+    fs.mkdirSync(path.dirname(hedef), { recursive: true });
+    fs.writeFileSync(gecici, JSON.stringify([...gorulenIlanlar.entries()]), { encoding: 'utf8', mode: 0o600 });
+    fs.renameSync(gecici, hedef);
+  } catch (err) {
+    console.error(`⚠️ Mükerrer hafızası diske yazılamadı: ${err.message}`);
+  }
+}
+try {
+  if (fs.existsSync(CONFIG.MUKERRER_DOSYA)) {
+    const kayitlar = JSON.parse(fs.readFileSync(CONFIG.MUKERRER_DOSYA, 'utf8'));
+    if (Array.isArray(kayitlar)) for (const [k, t] of kayitlar) {
+      if (typeof k === 'string' && Number.isFinite(t)) gorulenIlanlar.set(k, t);
+    }
+    console.log(`🗂️ Kalıcı mükerrer hafızası: ${gorulenIlanlar.size} anahtar yüklendi.`);
+  }
+} catch (err) { console.warn(`⚠️ Mükerrer hafızası okunamadı: ${err.message}`); }
 // Aynı telefondan kısa sürede yağan ilanlar (spam / aynı yükü her gruba farklı yazma) kısıtlanır
 const telefonSayac = new Map(); // telefon → [zaman, ...]
 function telefonLimitAsildi(tel) {
@@ -164,49 +208,101 @@ function sb() {
 }
 
 function sbSatiri(i) {
+  // Uygulama mevcut bot_listings kolonlarını kullanmaya devam eder.
+  // cargo_detail alanına ayrıştırılmış özet yerine WhatsApp'tan gelen TAM metin yazılır.
+  const ham = String(i.ham_mesaj ?? i.detay ?? '');
   const satir = {
-    from_city: i.nereden,
-    to_city: i.nereye,
-    cargo_detail: i.tur === 'ARAC' ? `[BOŞ ARAÇ] ${i.detay}` : i.detay,
-    vehicle_type: i.arac_tipi,
+    from_city: i.nereden || 'Belirtilmedi',
+    to_city: i.nereye || 'Belirtilmedi',
+    cargo_detail: ham,
+    vehicle_type: i.arac_tipi || 'Belirtilmedi',
     company_name: i.firma || CONFIG.VARSAYILAN_FIRMA
   };
-  if (CONFIG.SUPABASE_TELEFON_KOLONU) satir[CONFIG.SUPABASE_TELEFON_KOLONU] = i.telefon_ham;
-  else satir.cargo_detail += ` — Tel: ${i.telefon}`; // ayrı kolon yoksa telefon detayda taşınır
+  if (CONFIG.SUPABASE_TELEFON_KOLONU && i.telefon_ham) satir[CONFIG.SUPABASE_TELEFON_KOLONU] = i.telefon_ham;
+  else if (i.telefon && !ham.replace(/\D/g, '').includes(String(i.telefon_ham || '').replace(/\D/g, ''))) {
+    satir.cargo_detail += `\nTel: ${i.telefon}`; // tabloda ayrı telefon kolonu yoksa ve ham metinde yoksa ekle
+  }
   return satir;
 }
 
 const sbKuyruk = [];
 let sbYaziyor = false;
+let sbKuyrukDosyaHatasi = false;
+let sbSonrakiDeneme = 0;
+
+// Yalnızca Supabase'e henüz yazılamamış kayıtlar diskte tutulur; başarılı kayıtlar kuyruktan çıkar.
+function sbKuyrukKaydet() {
+  if (sbKuyrukDosyaHatasi) return false;
+  const hedef = CONFIG.SB_KUYRUK_DOSYA;
+  const gecici = `${hedef}.tmp`;
+  try {
+    fs.mkdirSync(path.dirname(hedef), { recursive: true });
+    fs.writeFileSync(gecici, JSON.stringify(sbKuyruk), { encoding: 'utf8', mode: 0o600 });
+    fs.renameSync(gecici, hedef);
+    return true;
+  } catch (err) {
+    console.error(`🧯 Supabase kuyruk dosyası yazılamadı: ${err.message}. Bekleyen kayıtlar bellekten silinmeyecek.`);
+    try { fs.unlinkSync(gecici); } catch {}
+    return false;
+  }
+}
+try {
+  if (fs.existsSync(CONFIG.SB_KUYRUK_DOSYA)) {
+    const yedek = JSON.parse(fs.readFileSync(CONFIG.SB_KUYRUK_DOSYA, 'utf8'));
+    if (Array.isArray(yedek)) {
+      sbKuyruk.push(...yedek);
+      if (sbKuyruk.length) console.log(`💾 Disk kuyruğundan ${sbKuyruk.length} bekleyen kayıt yüklendi.`);
+    } else throw new Error('Kuyruk dosyasının biçimi dizi değil');
+  }
+} catch (err) {
+  sbKuyrukDosyaHatasi = true;
+  console.error(`🧯 Kuyruk dosyası okunamadı: ${err.message}. Dosyaya dokunulmayacak; elle kontrol gerekli.`);
+}
 
 async function sbBosalt() {
-  if (sbYaziyor) return;
+  if (sbYaziyor || !sbKuyruk.length || Date.now() < sbSonrakiDeneme) return;
   const db = sb();
-  if (!db) { sbKuyruk.length = 0; return; }
+  if (!db) return; // Supabase ayarı yoksa kuyruk korunur.
   sbYaziyor = true;
   try {
     while (sbKuyruk.length) {
-      const grup = sbKuyruk.splice(0, 50);
+      const grup = sbKuyruk.slice(0, 50); // başarılı olduğu doğrulanana kadar kuyruktan çıkarma
       let basarili = false;
       for (let deneme = 1; deneme <= 3 && !basarili; deneme++) {
         try {
           const { error } = await db.from(CONFIG.SUPABASE_TABLO).insert(grup);
-          if (!error) { basarili = true; ist.sbKayit += grup.length; console.log(`🚀 ${grup.length} ilan Supabase'e kaydedildi.`); break; }
+          if (!error) {
+            basarili = true;
+            sbKuyruk.splice(0, grup.length);
+            if (!sbKuyrukKaydet()) {
+              // Veritabanına yazıldı; disk dosyası eski kalırsa yeniden başlatmada tekrar yazılabilir.
+              console.error('⚠️ Supabase kaydı başarılı ancak kuyruk dosyası güncellenemedi; olası tekrar kayıt kontrol edilmeli.');
+            }
+            ist.sbKayit += grup.length;
+            console.log(`🚀 ${grup.length} ilan Supabase'e kaydedildi. Kuyrukta: ${sbKuyruk.length}`);
+            break;
+          }
           console.error(`❌ Supabase hatası (${deneme}/3): ${error.message}`);
-          if (error.code && /^(42|23|PGRST)/.test(error.code)) break; // kalıcı hata (kolon yok, yetki...) → tekrar deneme
+          if (error.code && /^(42|23|PGRST)/.test(error.code)) break;
         } catch (err) {
           console.error(`❌ Supabase bağlantı hatası (${deneme}/3): ${err.message}`);
         }
-        await bekle(1500 * deneme);
+        if (!basarili && deneme < 3) await bekle(1500 * deneme);
       }
-      if (!basarili) ist.sbHata += grup.length;
+      if (!basarili) {
+        ist.sbHata += grup.length;
+        sbSonrakiDeneme = Date.now() + 30000;
+        console.error(`🧯 ${sbKuyruk.length} kayıt diskte/bellekte bekliyor; 30 saniye sonra yeniden denenecek.`);
+        return;
+      }
     }
   } finally { sbYaziyor = false; }
 }
 function sbKuyrugaEkle(satir) {
-  if (sbKuyruk.length > 1000) sbKuyruk.shift(); // bellek koruması
   sbKuyruk.push(satir);
+  const diskeYazildi = sbKuyrukKaydet();
   if (sbKuyruk.length >= 20) sbBosalt();
+  return diskeYazildi;
 }
 
 async function eskiIlanlariTemizle() {
@@ -364,7 +460,7 @@ async function mesajiIsle(sock, msg) {
     return;
   }
 
-  const { ilanlar, ret, terim } = ilanlariAyristir(ham, { tekSehirKabul: CONFIG.TEK_SEHIRLI_KABUL, gondericiTelefon: gondericiTel, yabanciEngelle: CONFIG.YABANCI_ENGELLE });
+  const { ilanlar, ret, terim } = ilanlariAyristir(ham, { tekSehirKabul: CONFIG.TEK_SEHIRLI_KABUL, gondericiTelefon: gondericiTel, yabanciEngelle: CONFIG.YABANCI_ENGELLE, telefonZorunlu: false });
   if (!ilanlar.length) {
     retSayac[ret] = (retSayac[ret] || 0) + 1;
     if (ORNEK_RET.has(ret) || (ret === 'telefon_yok' && ham.length >= 25 && YUK_DILI.test(ham))) ornekEkle(ret, ham);
@@ -380,11 +476,13 @@ async function mesajiIsle(sock, msg) {
   for (const i of ilanlar) {
     if (!i.firma && profilAdi) i.firma = profilAdi;
     if (i.tur === 'ARAC' && CONFIG.BOS_ARAC_ATLA) continue;
+    if (i.telefon_ham && telefonLimitAsildi(i.telefon_ham)) { retSayac.telefon_limit = (retSayac.telefon_limit || 0) + 1; continue; }
     if (mukerrerMi(i)) { ist.mukerrer++; continue; }
-    if (telefonLimitAsildi(i.telefon_ham)) { retSayac.telefon_limit = (retSayac.telefon_limit || 0) + 1; continue; }
     ist.ilan++;
+    i.ham_mesaj = ham; // Orijinal WhatsApp içeriği değiştirilmeden veritabanına aktarılır.
     console.log(`⚡ [${i.tur === 'ARAC' ? 'BOŞ ARAÇ' : 'İLAN'}] ${i.firma ? i.firma + ' | ' : ''}${i.nereden} ➡️ ${i.nereye} | ${i.arac_tipi} | ${i.telefon}`);
-    sbKuyrugaEkle(sbSatiri(i));
+    const kuyrukDiskeYazildi = sbKuyrugaEkle(sbSatiri(i));
+    mukerrerKaydet(i, kuyrukDiskeYazildi);
     telegramaGonder(i);
   }
   setTimeout(sbBosalt, 2000); // küçük partiler en geç 2 sn sonra yazılır
@@ -412,7 +510,7 @@ ${durum.kod ? `<p><b>📱 EŞLEŞTİRME KODU</b></p><div class="k">${htmlKacis(d
 ${durum.qr ? `<img src="${durum.qr}" alt="QR"><p>Kamera ile QR kodu okutun.</p>` : ''}
 ${bagli ? '<p>Bot bağlı, grupları dinliyor…</p>' : ''}
 <p class="s">Açık kalma: ${sureMetni(Date.now() - durum.baslangic)} · Son mesaj: ${durum.sonMesaj ? sureMetni(Date.now() - durum.sonMesaj) + ' önce' : 'yok'}<br>
-Mesaj: ${ist.mesaj} · İlan: ${ist.ilan} · Mükerrer: ${ist.mukerrer} · Yabancı engel: ${retSayac.yabanci || 0}<br>Supabase: ${ist.sbKayit} kayıt (${sbKuyruk.length} sırada, ${ist.sbHata} hata)<br>Bu ay giden trafik: ${Math.round(trafikMB())} / ${CONFIG.AYLIK_LIMIT_MB} MB (%${trafikYuzde()})${butce.telegramKapali ? ' · Telegram kapalı' : ''}${butce.durdu ? ' · DURDURULDU' : ''}</p>
+Mesaj: ${ist.mesaj} · İlan: ${ist.ilan} · Mükerrer: ${ist.mukerrer} · Yabancı engel: ${retSayac.yabanci || 0}<br>Supabase: ${ist.sbKayit} kayıt (${sbKuyruk.length} sırada, ${ist.sbHata} hata)<br>Bu ay giden trafik: ${Math.round(trafikMB())} / ${CONFIG.AYLIK_LIMIT_MB} MB (%${trafikYuzde()})${butce.telegramKapali ? ' · Telegram kapalı' : ''}${butce.limitAsildi ? ' · TRAFİK UYARISI' : ''}</p>
 </div></body></html>`;
 }
 
@@ -450,12 +548,12 @@ let yenidenDeneme = 0;
 let yenidenZamanlayici = null;
 let aktifSock = null;
 function yenidenPlanla(ms) {
-  if (yenidenZamanlayici || butce.durdu) return;
+  if (yenidenZamanlayici || (butce.limitAsildi && CONFIG.TRAFIKTE_WHATSAPP_DURDUR)) return;
   yenidenZamanlayici = setTimeout(() => { yenidenZamanlayici = null; baglan(); }, ms);
 }
 
 async function baglan() {
-  if (butce.durdu) return;
+  if (butce.limitAsildi && CONFIG.TRAFIKTE_WHATSAPP_DURDUR) return;
   try {
     const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion, useMultiFileAuthState, Browsers } = require('@whiskeysockets/baileys');
     const QRCode = require('qrcode');
@@ -544,7 +642,15 @@ async function baglan() {
 function bellekTemizle() {
   const simdi = Date.now();
   for (const [k, t] of islenenMesajlar) if (simdi - t > 30 * 60 * 1000) islenenMesajlar.delete(k);
-  for (const [k, t] of gorulenIlanlar) if (simdi - t > CONFIG.MUKERRER_SAAT * 3600 * 1000) gorulenIlanlar.delete(k);
+  let mukerrerSilindi = false;
+  for (const [k, t] of gorulenIlanlar) if (simdi - t > CONFIG.MUKERRER_SAAT * 3600 * 1000) { gorulenIlanlar.delete(k); mukerrerSilindi = true; }
+  if (mukerrerSilindi) {
+    try {
+      const hedef = CONFIG.MUKERRER_DOSYA; const gecici = `${hedef}.tmp`;
+      fs.writeFileSync(gecici, JSON.stringify([...gorulenIlanlar.entries()]), { encoding: 'utf8', mode: 0o600 });
+      fs.renameSync(gecici, hedef);
+    } catch (err) { console.error(`⚠️ Mükerrer hafızası temizlenemedi: ${err.message}`); }
+  }
   for (const [k, l] of telefonSayac) if (!l.length || simdi - l[l.length - 1] > CONFIG.MUKERRER_SAAT * 3600 * 1000) telefonSayac.delete(k);
   for (const [k, v] of grupAdlari) if (simdi - v.zaman > 24 * 3600 * 1000) grupAdlari.delete(k);
 }
