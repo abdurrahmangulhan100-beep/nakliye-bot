@@ -145,7 +145,8 @@ const LISTE_SABLON = [
   /\bbana whatsapp\w*\b.{0,25}\bmesaj\b/,
   /\bbugun planlanan\b|\bplanlanan\s+tasima\w*/,
   /\bbugun yapilacak sevkiyat\b|\bbugunun kaliteli yuk\w*/,
-  /\bbugunku\s+(?:yukleme\w*|yukler|nakliye\w*|sevkiyat\w*)\b|\bbugun\s+yukleme\w*\s+(?:listesi|yapilacak)\b|\bgunun\s+yukleri\b/,
+  /\bbugunku\s+(?:yuk\b|yukleme\w*|yukler|yuk\s+tasima\s+(?:isi|program\w*)|tasima\s+(?:gorev\w*|program\w*)|nakliye\w*|sevkiyat\w*)\b|\bbugun\s+yukleme\w*\s+(?:listesi|yapilacak)\b|\bgunun\s+yukleri\b|\bgunun\s+tasima\s+gorev\w*/,
+  /\blutfen\s+(?:bana\s+)?whatsapp\s*dan\s+mesaj\s+(?:birak\w*|atin|atiniz)\b/,
   /\bwhatsapp\w*\s+uzerinden\b.{0,30}\b(?:iletisim|mesaj)\b|\bbenimle iletisim kurun\b/
 ];
 const LISTE_CIFT_TIRE_ESIK = 8; // "A--B" biçiminde dizilmiş rota satırı sayısı
@@ -156,6 +157,11 @@ const OLCU_SATIRI = /\d\s?(?:kg|ton|palet)/;
 const SPAM = [
   /\b(?:sofor|kaptan|eleman|personel)\b.{0,30}\b(?:aran\w*|ariyor\w*|lazim|gerek\w*|alinacak|alinir)\b/,
   /\bcalisma arkadasi\b/,
+  /\bis ariyorum\b|\bis aramaktayim\b|\bise ihtiyacim var\b/,
+  /\bsofor\s+(?:is|pozisyonu)\s+ariyorum\b/,
+  /\btelefon(?:suz| numarasi yok)\s+ilan\w*\b|\biletisim\s+numarasi\s+yok\b/,
+  /\blutfen\s+(?:bana\s+)?whatsapp\s*dan\s+mesaj\s+(?:birak\w*|atin|atiniz)\b/,
+  /\bwhatsapp\s*dan\s+(?:bana\s+)?mesaj\s+(?:birak\w*|atin|atiniz)\b/,
   /\b(?:eleman|asansor|hamal|isci)\b.{0,40}\b(?:temin|saglan\w*|veririz|verilir)\b/,
   /\bsatilik\b|\bsatiyorum\b|\bdevren\b|\bkiralik\b/,
   /\bhasar\s?kayitsiz\b|\bekspertiz\b|\bmuayene\b|\bsigorta\b|\bkredi\b/,
@@ -303,8 +309,18 @@ function ilanlariAyristir(hamMesaj, secenek = {}) {
 
   const cevrilmis = waLinkiniNumarayaCevir(hamMesaj);
   if (cevrilmis.length < 8) return RET('cok_kisa');
-  if (cevrilmis.length > 12000) return RET('cok_uzun');
-  { const nTum = normalize(cevrilmis.replace(URL_RE, ' ')); if (LISTE_SABLON.some(r => r.test(nTum))) return RET('liste_spam'); }
+  if (cevrilmis.length > 60000) return RET('cok_uzun'); // WhatsApp sınırına yakın güvenlik freni; uzun ilan tek başına spam değildir.
+  {
+    const nTum = normalize(cevrilmis.replace(URL_RE, ' '));
+    if (LISTE_SABLON.some(r => r.test(nTum))) {
+      // Otomatik görev/yük programı başlıkları çoğunlukla ilan değildir.
+      // Somut yük miktarı veya araç bilgisi varsa gerçek ilanı kaybetmemek için ayrıştırmaya devam et.
+      const somutYuk = /\b\d+(?:[.,]\d+)?\s*(?:ton|tonluk|kg|palet|koli|bigbag)\b/.test(nTum);
+      const planlamaDuyurusu = /\bbugun planlanan\b|\bplanlanan tasima\w*\b|\bbugun yapilacak sevkiyat\b/.test(nTum);
+      // Yalnız araç türünün geçmesi otomatik duyuruyu gerçek ilana dönüştürmez.
+      if (planlamaDuyurusu || !somutYuk) return RET('liste_spam');
+    }
+  }
 
   // Yurt dışı yükleri (Irak, Almanya, Erbil, KKTC...) baştan ele: mesajın herhangi bir yerinde geçmesi yeterli
   if (secenek.yabanciEngelle !== false) {
