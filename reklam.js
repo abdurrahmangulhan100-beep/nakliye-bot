@@ -9,7 +9,7 @@
  *            engelle = hangi tür olursa olsun linkli mesaj atılır   |   izin = link kontrolü kapalı
  * wa.me / api.whatsapp.com/send linkleri "iletişim" sayılır, engellenmez (parser numaraya çevirir).
  */
-const { normalize, telefonlariBul, telefonNormalize } = require('./parser');
+const { normalize, telefonlariBul, telefonNormalize, ilanlariAyristir } = require('./parser');
 
 const MARKALAR = [
   { ad: 'qmove', re: /\bq ?move\w*/ },
@@ -37,12 +37,21 @@ function reklamKontrol(ham, ayar = {}) {
   if (ayar.linkModu === 'izin') return null;
   const temiz = metin.replace(WA_ILETISIM, ' ');
   const sosyal = temiz.match(SOSYAL);
-  if (sosyal) return { ret: 'reklam_link', terim: sosyal[0] };
   const linkler = temiz.match(LINK);
-  if (!linkler) return null;
-  const terim = linkler[0].slice(0, 40);
+  if (!sosyal && !linkler) return null;
+
+  const terim = (sosyal ? sosyal[0] : linkler[0]).slice(0, 40);
   if (ayar.linkModu === 'engelle') return { ret: 'reklam_link', terim };
-  if (PROMO.test(normalize(temiz.replace(LINK, ' ')))) return { ret: 'reklam_link', terim };
+
+  // Kanal/grup bağlantısı tek başına gerçek ilanı geçersiz kılmaz.
+  // Bağlantı dışındaki metin parser tarafından geçerli yük/araç ilanı sayılıyorsa
+  // mesajı koru; yalnız davet/reklam metinleri parser'dan ilan çıkaramaz.
+  const sonuc = ilanlariAyristir(metin, { telefonZorunlu: false });
+  if (sonuc.ilanlar && sonuc.ilanlar.length) return null;
+
+  if (sosyal || PROMO.test(normalize(temiz.replace(LINK, ' ')))) {
+    return { ret: 'reklam_link', terim };
+  }
   return null;
 }
 
