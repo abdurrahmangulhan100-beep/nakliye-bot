@@ -144,6 +144,40 @@ test('Nakliye hizmeti / depolama / kampanya reklamları atılır', () => {
   for (const m of ['Türkiye geneli nakliyat hizmeti veriyoruz Konya Ankara', 'Eşya depolama ambalaj Konya Ankara tır', 'Konya Ankara tır kampanya indirim'])
     assert.deepEqual(al(m + TEL), [], m);
 });
+
+test('Otomatik görev metinleri, iş arama ve WhatsApp yönlendirmeleri elenir', () => {
+  const gereksiz = [
+    'Bugünkü taşıma görevi',
+    'Bugünkü yük',
+    'Bugünkü yük taşıma işi',
+    'Bugünkü yük taşıma programı',
+    'Günün taşıma görevi',
+    'Lütfen bana WhatsApp dan mesaj bırakın',
+    'İş arıyorum',
+    'Şoför aranıyor',
+    'Telefonsuz ilanlar'
+  ];
+  for (const m of gereksiz) {
+    const r = ilanlariAyristir(m);
+    assert.equal(r.ilanlar.length, 0, m);
+    if (/bugunku|gunun/.test(require('./parser.js').normalize(m))) {
+      assert.equal(r.ret, 'liste_spam', m);
+    }
+  }
+});
+
+test('Görev başlığı içeren ama gerçek tonajlı yük ilanı kaybedilmez', () => {
+  const r = ilanlariAyristir('Bugünkü yük taşıma işi: Konya Ankara 24 ton patates, kapalı dorse lazım' + TEL);
+  assert.equal(r.ilanlar.length, 1);
+  assert.ok(r.ilanlar[0].detay.includes('24 ton'));
+});
+
+test('İş arama satırı gerçek yük ilanının yanında olsa da ilan korunur', () => {
+  const r = ilanlariAyristir('İş arıyorum\nKonya Ankara 24 ton patates kapalı dorse' + TEL);
+  assert.equal(r.ilanlar.length, 1);
+  assert.ok(!r.ilanlar[0].detay.includes('İş arıyorum'));
+});
+
 test('Telefonsuz mesaj atılır', () => {
   assert.equal(ilanlariAyristir('Konya Ankara 13.60 açık tır lazım').ret, 'telefon_yok');
 });
@@ -162,6 +196,18 @@ test('Aynı telefon+yer+tonaj, isim değişse de aynı gevşek anahtar', () => {
   assert.notEqual(a.anahtar2, c.anahtar2);
 });
 
+
+
+test('Qmove marka reklamı yakalanır', () => {
+  const { reklamKontrol } = require('./reklam.js');
+  assert.equal(reklamKontrol('Qmove uygulamasını indirin').ret, 'reklam_marka');
+});
+
+test('Çok uzun ama gerçek yük ilanı yalnız uzun olduğu için reddedilmez', () => {
+  const govde = 'Konya Ankara 24 ton patates kapalı dorse yük var\\n' + 'Yükleme ve teslimat açıklaması\\n'.repeat(500);
+  const r = ilanlariAyristir(govde + TEL);
+  assert.equal(r.ilanlar.length, 1);
+});
 
 test('Uzun çok satırlı mesaj 4.000 karakteri geçti diye otomatik reddedilmez', () => {
   const govde = 'Konya Ankara 13.60 kapalı dorse yük var\n' + 'Açıklama ve yükleme ayrıntısı\n'.repeat(180);
