@@ -4,6 +4,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { ilanlariAyristir, aracTipiTespit } = require('./parser.js');
+const { reklamKontrol } = require('./reklam.js');
 
 const TEL = ' 0532 111 22 33';
 const al = (m) => ilanlariAyristir(m).ilanlar;
@@ -233,4 +234,27 @@ test('Telefonu olmayan ama rota ve nakliye bilgisi içeren ilan ham modda kabul 
   const r = ilanlariAyristir('Konya Ankara 13.60 kapalı dorse 24 ton yük var', { telefonZorunlu: false });
   assert.equal(r.ilanlar.length, 1);
   assert.equal(r.ilanlar[0].telefon_ham, null);
+});
+
+
+test('Gerçek yük ilanındaki WhatsApp grup/kanal bağlantısı ilanı düşürmez', () => {
+  const grup = "Konya'dan Ankara'ya 20 ton yük var açık dorse " + TEL +
+    "\\nhttps://chat.whatsapp.com/AbCdEf";
+  const kanal = "Konya'dan Ankara'ya 20 ton yük var açık dorse " + TEL +
+    "\\nhttps://whatsapp.com/channel/AbCdEf";
+  assert.equal(reklamKontrol(grup)?.ret, undefined);
+  assert.equal(reklamKontrol(kanal)?.ret, undefined);
+});
+
+test('Yalnız WhatsApp grup/kanal daveti reklam olarak reddedilir', () => {
+  const grup = "Bu bağlantıyı takip ederek WhatsApp grubuma katılabilirsin: https://chat.whatsapp.com/AbCdEf";
+  const kanal = "Nakliye ilanları için kanalımıza katılın: https://whatsapp.com/channel/AbCdEf";
+  assert.equal(reklamKontrol(grup)?.ret, 'reklam_link');
+  assert.equal(reklamKontrol(kanal)?.ret, 'reklam_link');
+});
+
+test('LINK_MODU engelle ayarında gerçek ilan da bağlantı nedeniyle reddedilir', () => {
+  const mesaj = "Konya'dan Ankara'ya 20 ton yük var açık dorse " + TEL +
+    "\\nhttps://chat.whatsapp.com/AbCdEf";
+  assert.equal(reklamKontrol(mesaj, { linkModu: 'engelle' })?.ret, 'reklam_link');
 });
