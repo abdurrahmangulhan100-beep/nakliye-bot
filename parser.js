@@ -327,6 +327,8 @@ const AYRAC = /^[\s\-_=─━*~.+#|]{5,}$/;
 const BASLIK = /\b(?:yukleme\w*|cikis\w*|kalkis\w*|yukler\w*|yuklu|yuku|yuklenecek|yuklenir)\b/;
 const HEDEF = /\b(?:iner|bosalt\w*|teslim\w*|varis\w*|inecek|indirme\w*|tahliye\w*|gidecek)\b/;
 const MAX_VARIS_SATIR = 8;
+const MAX_ROTA_ILAN = 60;     // tek mesajdan en çok kaç ayrı ilan (rotaBol açıkken)
+const FIYAT = /\b\d[\d ]{1,6}\s?(?:tl|lira)\b/; // "Konya Ankara 1500 TL" gibi fiyatlı satırlar da ilan sinyalidir
 
 function waLinkiniNumarayaCevir(m) {
   return String(m || '').replace(/(?:https?:\/\/)?wa\.me\/\+?(\d{10,13})\S*/gi, ' $1 ');
@@ -358,7 +360,7 @@ function ilanlariAyristir(hamMesaj, secenek = {}) {
   }
 
   // Yurt dışı yükleri (Irak, Almanya, Erbil, KKTC...) baştan ele: mesajın herhangi bir yerinde geçmesi yeterli
-  if (secenek.yabanciEngelle !== false) {
+  if (secenek.yabanciEngelle !== false && !secenek.rotaBol) {
     const terim = yabanciTerim(normalize(cevrilmis.replace(URL_RE, ' ')));
     if (terim) return { ilanlar: [], ret: 'yabanci', terim };
   }
@@ -464,7 +466,65 @@ function ilanlariAyristir(hamMesaj, secenek = {}) {
 
   // ── İlan sinyali (telefon + rota yetmez; yük/araç dili de olmalı) ──
   const mesajNorm = satirlar.map(s => s.n).join(' ');
-  if (!SINYAL.test(mesajNorm)) return RET('sinyal_yok');
+  if (!SINYAL.test(mesajNorm) && !FIYAT.test(mesajNorm)) return RET('sinyal_yok');
+
+  // ── Çok rotalı gerçek liste: her rota AYRI ilan (şehir araması bulsun) ──
+  if (secenek.rotaBol) {
+    const yEngel = secenek.yabanciEngelle !== false;
+    const gorB = new Set(); const benz = [];
+    for (const r of rotalar) {
+      const k = `${r.kalkis ? yerMetni(r.kalkis) : ''}|${r.varis ? yerMetni(r.varis) : ''}`;
+      if (!gorB.has(k)) { gorB.add(k); benz.push({ ...r, k }); }
+    }
+    if (benz.length < 2) {
+      const yt = yEngel ? yabanciTerim(normalize(cevrilmis.replace(URL_RE, ' '))) : null;
+      if (yt) return { ilanlar: [], ret: 'yabanci', terim: yt };
+    } else {
+      const ref = new Set(benz.flatMap(r => [r.idx, r.ctxIdx]));
+      if (yEngel) {
+        for (let i = 0; i < satirlar.length; i++) {
+          if (ref.has(i) || satirlar[i].ayrac) continue;
+          const yt = yabanciTerim(satirlar[i].n);
+          // yersiz başlık/imza satırında yurt dışı → mesaj atılır; yerli rota satırı gibi duran tek satır sadece düşer
+          if (yt && !satirlar[i].yer.length) return { ilanlar: [], ret: 'yabanci', terim: yt };
+        }
+      }
+      const firmaB = firmaBul(satirlar);
+      const enYakinTel = (idx) => {
+        let best = null; let d = 1e9;
+        satirlar.forEach((x, i) => { if (x.tel.length && Math.abs(i - idx) < d) { d = Math.abs(i - idx); best = x.tel[0]; } });
+        return best;
+      };
+      const tipSayac = {};
+      satirlar.forEach((x, i) => { if (ref.has(i)) return; const a = aracTipiTespit(x.raw); if (a !== 'Belirtilmedi') tipSayac[a] = (tipSayac[a] || 0) + 1; }); // rota satırı dışındaki ortak araç bilgisi
+      const tekTip = Object.keys(tipSayac).length === 1 ? Object.keys(tipSayac)[0] : 'Belirtilmedi';
+      const out = []; let yabanciDustu = 0;
+      for (const r of benz.slice(0, MAX_ROTA_ILAN)) {
+        const s = satirlar[r.idx]; const c = r.ctxIdx >= 0 ? satirlar[r.ctxIdx] : null;
+        const parts = c ? [c, s] : [s];
+        if (yEngel && parts.some(x => yabanciTerim(x.n))) { yabanciDustu++; continue; }
+        const detayR = [...new Set(parts.map(x => satirTemizle(olculeriDuzelt(telefonSil(x.raw)))).filter(Boolean))].join('\n');
+        if (detayR.length < 8) continue;
+        const tel = s.tel[0] || (c && c.tel[0]) || enYakinTel(r.idx) || tumTel[0] || gondericiTel;
+        if (!tel && secenek.telefonZorunlu !== false) continue;
+        const hamR = parts.map(x => x.raw).join('\n');
+        const at = aracTipiTespit(hamR);
+        const a2 = ilanAnahtari2(parts, tel);
+        out.push({
+          tur: turTespit(parts.map(x => x.n).join(' ')) || turTespit(mesajNorm) || 'YUK',
+          nereden: r.kalkis ? yerMetni(r.kalkis) : 'Belirtilmedi',
+          nereye: r.varis ? yerMetni(r.varis) : 'Belirtilmedi',
+          arac_tipi: at !== 'Belirtilmedi' ? at : tekTip,
+          detay: detayR, ham_parca: hamR, firma: firmaB,
+          telefon_ham: tel, telefon: tel ? telefonBicimle(tel) : '',
+          anahtar: ilanAnahtari(`${detayR}|${r.k}`, tel),
+          anahtar2: a2 ? `${a2}|${normalize(r.k)}` : null
+        });
+      }
+      if (!out.length) return RET(yabanciDustu ? 'yabanci' : 'detay_bos');
+      return { ilanlar: out, ret: null };
+    }
+  }
 
   // ── TEK İLAN: mesajın temizlenmiş hali ──
   const temizSatir = (x) => satirTemizle(olculeriDuzelt(telefonSil(x.raw)));
