@@ -301,3 +301,17 @@ test('WhatsApp kanal linki silinir, ilan kalır', () => {
 test('wa.me iletişim linki linkTemizle ile korunur', () => {
   assert.ok(linkTemizle('Konya Ankara tır https://wa.me/905321112233').includes('wa.me/905321112233'));
 });
+
+test('Çok rotalı gerçek liste: her rota ayrı ilan, yurt dışı rota düşer, bugünkü şablon yine atılır', () => {
+  const m = ['TRAKYA ÇELİK LOJİSTİK', 'Malkara - Adana Seyhan → Uzun Kısa 2.350+', 'Malkara - Manisa Soma → Damper 1.000+', 'Keşan - Konya Merkez → Damper 1.600+', 'Uzunköprü - Erbil → Damper 9.000+'].join('\n');
+  const r = ilanlariAyristir(m, { telefonZorunlu: false, rotaBol: true });
+  assert.equal(r.ilanlar.length, 3);
+  assert.equal(r.ilanlar[0].nereye, 'Adana / Seyhan');
+  assert.equal(r.ilanlar[2].nereden, 'Edirne / Keşan');
+  assert.ok(!r.ilanlar.some(i => /Erbil/.test(i.detay)));
+  assert.equal(new Set(r.ilanlar.map(i => i.anahtar)).size, 3);
+  assert.equal(ilanlariAyristir('Bugün için nakliye görevi\n' + m, { telefonZorunlu: false, rotaBol: true }).ret, 'liste_spam');
+});
+test('Fiyatlı rota satırı sinyal sayılır', () => {
+  assert.equal(ilanlariAyristir('Malkara - Konya 1500 TL', { telefonZorunlu: false }).ilanlar.length, 1);
+});
