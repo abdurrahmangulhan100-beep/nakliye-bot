@@ -154,6 +154,40 @@ const LISTE_ROTA_ESIK = 10;   // 2+ yer geçen satır sayısı
 const LISTE_OLCU_ESIK = 6;    // kg/ton/palet geçen satır sayısı
 const OLCU_SATIRI = /\d\s?(?:kg|ton|palet)/;
 
+// Otomatik / toplu paylaşım imzaları: somut yük (ton/palet) geçse bile MESAJIN TAMAMI atılır
+const TOPLU_KESIN = [
+  /\bnakliye gorevi\b|\btasima gorevi\b|\bbugunku\s+(?:nakliye|tasima|yuk|yukler|yukleme\w*|sevkiyat\w*)\b|\bbugun icin\s+(?:nakliye|tasima|yuk)\w*|\bgunun\s+(?:yukleri|tasima\w*|nakliye\w*)\b/,
+  /\btoplu olarak paylasilmistir\b|\bbu mesaj\b.{0,70}\bpaylasilmis\w*/,
+  /\bayni anda bircok\b.{0,30}\bgrup\w*/,
+  /\bsevkiyat\s?yonetimi\b/,
+  /\bwhatsapp\w*\s+kullanabilirsiniz\b|\bmesaj icin whatsapp\b/
+];
+// "Kapalı/Tenteli/Yüksek Yan/Açık/Frigo/Damperli" gibi tüm araç tiplerini art arda sayan şablon
+const ARAC_T = '(?:kapal[ıiİI]|tenteli|perdeli|y[üuÜU]ksek|yan|a[çcÇC][ıiİI]k|frigo|damperli|kamyonet|lowbed)';
+const ARAC_SABLON = new RegExp(`${ARAC_T}(?:[\\s/]+${ARAC_T}){3,}`, 'gi');
+const aracSablonuMu = (m) => (String(m || '').replace(/\s+/g, ' ').match(ARAC_SABLON) || []).some(x => x.includes('/'));
+
+// Ev/ofis taşıma, hamal, asansör, paketleme gibi HİZMET reklamı satırları: 2+ satır varsa mesaj ilan değildir
+const HIZMET = [
+  /\besya\s+(?:indirme\w*|yukleme\w*|paketleme\w*|tasima\w*)/,
+  /\bher ?turlu\b.{0,25}\bmobilya\w*/,
+  /\bsokulup\b|\bmontaj\w*|\bdemontaj\w*/,
+  /\basansor\w*/,
+  /\bitina ile\b|\bhizmet\w*\s+verilmekted\w*|\bhizmet\w*\s+verilir\b/,
+  /\bgelen nakliyeci\w*/,
+  /\bevden eve\b|\bev tasima\w*|\bofis tasima\w*/,
+  /\bpaketleme\w*|\bambalaj\w*|\bdepolama\w*/
+];
+
+// İş / hizmet / satış kategorileri: tek satır bile geçse mesajın TAMAMI ilan değildir (uzunluk önemsiz)
+const KATEGORI_RED = [
+  /\b(?:sofor|kaptan|eleman|personel|tir soforu)\w*\b.{0,30}\b(?:aran\w*|ariyor\w*|lazim|gerek\w*|alinacak|alinir)\b/,
+  /\bis ariyorum\b|\bis aramaktayim\b|\bise ihtiyacim var\b|\bsofor\s+(?:is|pozisyonu)\s+ariyorum\b/,
+  /\basansor\w*/,
+  /\bevden eve\b|\bev tasima\w*|\bofis tasima\w*|\bparca esya\b/,
+  /\bsatilik\b|\bsatiyorum\b|\bdevren\b|\bkiralik\b/
+];
+
 const SPAM = [
   /\b(?:sofor|kaptan|eleman|personel)\b.{0,30}\b(?:aran\w*|ariyor\w*|lazim|gerek\w*|alinacak|alinir)\b/,
   /\bcalisma arkadasi\b/,
@@ -312,6 +346,7 @@ function ilanlariAyristir(hamMesaj, secenek = {}) {
   if (cevrilmis.length > 60000) return RET('cok_uzun'); // WhatsApp sınırına yakın güvenlik freni; uzun ilan tek başına spam değildir.
   {
     const nTum = normalize(cevrilmis.replace(URL_RE, ' '));
+    if (TOPLU_KESIN.some(r => r.test(nTum)) || aracSablonuMu(cevrilmis.replace(URL_RE, ' '))) return RET('liste_spam');
     if (LISTE_SABLON.some(r => r.test(nTum))) {
       // Otomatik görev/yük programı başlıkları çoğunlukla ilan değildir.
       // Somut yük miktarı veya araç bilgisi varsa gerçek ilanı kaybetmemek için ayrıştırmaya devam et.
@@ -333,10 +368,13 @@ function ilanlariAyristir(hamMesaj, secenek = {}) {
     .split(/\r?\n|[•·●▪■✅☑✔🔻🔺🔸🔹🛑⚠]/u).map(s => s.trim()).filter(Boolean);
 
   let spamVar = false;
+  let hizmetSay = 0;
   const satirlar = [];
   for (const raw of parcalar) {
     const n = normalize(raw);
     if (!n && !AYRAC.test(raw)) continue;
+    if (KATEGORI_RED.some(r => r.test(n))) return RET('is_hizmet');
+    if (HIZMET.some(r => r.test(n))) { hizmetSay++; spamVar = true; continue; }
     if (SPAM.some(r => r.test(n))) { spamVar = true; continue; }
     const tel = telefonlariBul(raw);
     const govde = telefonSil(raw);
@@ -355,6 +393,7 @@ function ilanlariAyristir(hamMesaj, secenek = {}) {
     const ciftTire = satirlar.filter(x => /\S\s?--\s?\S/.test(x.raw)).length;
     if (ciftTire >= LISTE_CIFT_TIRE_ESIK) return RET('liste_spam');
   }
+  if (hizmetSay >= 2) return RET('hizmet_reklam');
   const tumTel = [...new Set(satirlar.flatMap(s => s.tel))];
   if (!tumTel.length && !gondericiTel && secenek.telefonZorunlu !== false) return RET(spamVar ? 'spam' : 'telefon_yok');
 
