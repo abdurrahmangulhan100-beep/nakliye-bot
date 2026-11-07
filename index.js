@@ -32,7 +32,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { ilanlariAyristir, ilanAnahtari, normalize, firmaTemizle } = require('./parser');
-const { reklamKontrol, kelimeListesi, telefonListesi } = require('./reklam');
+const { reklamKontrol, kelimeListesi, telefonListesi, linkTemizle } = require('./reklam');
 
 // ═══════════════ 1. AYARLAR ═══════════════
 const env = process.env;
@@ -479,7 +479,7 @@ async function mesajiIsle(sock, msg) {
     if (i.telefon_ham && telefonLimitAsildi(i.telefon_ham)) { retSayac.telefon_limit = (retSayac.telefon_limit || 0) + 1; continue; }
     if (mukerrerMi(i)) { ist.mukerrer++; continue; }
     ist.ilan++;
-    i.ham_mesaj = ham; // Orijinal WhatsApp içeriği değiştirilmeden veritabanına aktarılır.
+    i.ham_mesaj = linkTemizle(ham) || i.detay; // Orijinal WhatsApp içeriği değiştirilmeden veritabanına aktarılır.
     console.log(`⚡ [${i.tur === 'ARAC' ? 'BOŞ ARAÇ' : 'İLAN'}] ${i.firma ? i.firma + ' | ' : ''}${i.nereden} ➡️ ${i.nereye} | ${i.arac_tipi} | ${i.telefon}`);
     const kuyrukDiskeYazildi = sbKuyrugaEkle(sbSatiri(i));
     mukerrerKaydet(i, kuyrukDiskeYazildi);
