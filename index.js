@@ -63,6 +63,7 @@ const CONFIG = {
 
   BOS_ARAC_ATLA: bool(env.BOS_ARAC_ILANLARINI_ATLA, false),
   TEK_SEHIRLI_KABUL: bool(env.TEK_SEHIRLI_ILAN_KABUL, true),
+  ROTA_BOL: bool(env.ROTA_BOL, false),                        // false (varsayılan): 1 mesaj = 1 ilan, ham mesaj tam gösterilir. true: her rota ayrı kart (trafik artar)
   GONDERICI_NO: bool(env.GONDERICI_NUMARASINI_KULLAN, false),
   RET_LOG: bool(env.RET_LOG, true),
   YABANCI_ENGELLE: bool(env.YABANCI_ILANLARI_ENGELLE, true),
@@ -460,7 +461,7 @@ async function mesajiIsle(sock, msg) {
     return;
   }
 
-  const { ilanlar, ret, terim } = ilanlariAyristir(ham, { tekSehirKabul: CONFIG.TEK_SEHIRLI_KABUL, gondericiTelefon: gondericiTel, yabanciEngelle: CONFIG.YABANCI_ENGELLE, telefonZorunlu: false });
+  const { ilanlar, ret, terim } = ilanlariAyristir(ham, { tekSehirKabul: CONFIG.TEK_SEHIRLI_KABUL, gondericiTelefon: gondericiTel, yabanciEngelle: CONFIG.YABANCI_ENGELLE, telefonZorunlu: false, rotaBol: CONFIG.ROTA_BOL });
   if (!ilanlar.length) {
     retSayac[ret] = (retSayac[ret] || 0) + 1;
     if (ORNEK_RET.has(ret) || (ret === 'telefon_yok' && ham.length >= 25 && YUK_DILI.test(ham))) ornekEkle(ret, ham);
@@ -479,7 +480,7 @@ async function mesajiIsle(sock, msg) {
     if (i.telefon_ham && telefonLimitAsildi(i.telefon_ham)) { retSayac.telefon_limit = (retSayac.telefon_limit || 0) + 1; continue; }
     if (mukerrerMi(i)) { ist.mukerrer++; continue; }
     ist.ilan++;
-    i.ham_mesaj = linkTemizle(ham) || i.detay; // Orijinal WhatsApp içeriği değiştirilmeden veritabanına aktarılır.
+    i.ham_mesaj = linkTemizle(i.ham_parca || ham) || i.detay; // Orijinal WhatsApp içeriği değiştirilmeden veritabanına aktarılır.
     console.log(`⚡ [${i.tur === 'ARAC' ? 'BOŞ ARAÇ' : 'İLAN'}] ${i.firma ? i.firma + ' | ' : ''}${i.nereden} ➡️ ${i.nereye} | ${i.arac_tipi} | ${i.telefon}`);
     const kuyrukDiskeYazildi = sbKuyrugaEkle(sbSatiri(i));
     mukerrerKaydet(i, kuyrukDiskeYazildi);
