@@ -167,16 +167,22 @@ test('Otomatik görev metinleri, iş arama ve WhatsApp yönlendirmeleri elenir',
   }
 });
 
-test('Görev başlığı içeren ama gerçek tonajlı yük ilanı kaybedilmez', () => {
+test('"Bugünkü yük/taşıma işi" başlıklı mesajlar tonaj olsa da atılır (kullanıcı kararı)', () => {
   const r = ilanlariAyristir('Bugünkü yük taşıma işi: Konya Ankara 24 ton patates, kapalı dorse lazım' + TEL);
-  assert.equal(r.ilanlar.length, 1);
-  assert.ok(r.ilanlar[0].detay.includes('24 ton'));
+  assert.equal(r.ilanlar.length, 0);
+});
+test('Telefonsuz ama uzun gerçek ilan (Trakya Çelik tarzı) atılmaz', () => {
+  const satirlar = ['TRAKYA ÇELİK LOJİSTİK', ...Array.from({ length: 12 }, (_, k) => `Malkara - ${['Adana Seyhan', 'Mersin Mezitli', 'Manisa Soma', 'Kütahya Simav'][k % 4]} → Damper ${1000 + k * 50}+`)];
+  assert.equal(ilanlariAyristir(satirlar.join('\n'), { telefonZorunlu: false }).ilanlar.length, 1);
+});
+test('Şoför aranıyor / iş arıyorum / asansör mesajları atılır', () => {
+  for (const m of ['Konya Ankara tır şoför aranıyor' + TEL, 'İş arıyorum tır şoförüyüm Konya Ankara' + TEL, 'Konya Ankara yük asansör temini' + TEL]) {
+    assert.equal(ilanlariAyristir(m).ret, 'is_hizmet', m);
+  }
 });
 
-test('İş arama satırı gerçek yük ilanının yanında olsa da ilan korunur', () => {
-  const r = ilanlariAyristir('İş arıyorum\nKonya Ankara 24 ton patates kapalı dorse' + TEL);
-  assert.equal(r.ilanlar.length, 1);
-  assert.ok(!r.ilanlar[0].detay.includes('İş arıyorum'));
+test('İş arama içeren mesaj, yanında yük olsa da atılır (kullanıcı kararı)', () => {
+  assert.equal(ilanlariAyristir('İş arıyorum\nKonya Ankara 24 ton patates kapalı dorse' + TEL).ret, 'is_hizmet');
 });
 
 test('Telefonsuz mesaj atılır', () => {
@@ -257,4 +263,41 @@ test('LINK_MODU engelle ayarında gerçek ilan da bağlantı nedeniyle reddedili
   const mesaj = "Konya'dan Ankara'ya 20 ton yük var açık dorse " + TEL +
     "\\nhttps://chat.whatsapp.com/AbCdEf";
   assert.equal(reklamKontrol(mesaj, { linkModu: 'engelle' })?.ret, 'reklam_link');
+});
+
+// ───────── Toplu / otomatik liste, hizmet reklamı, link temizliği ─────────
+const { linkTemizle } = require('./reklam.js');
+
+test('"Bugün için nakliye görevi" toplu listesi somut yük olsa da atılır', () => {
+  const m = 'Bugün için nakliye görevi\nMersin Antalya 1Palet\nİstanbul Sancaktepe İstanbul Fatih 2,5ton 1Palet';
+  assert.equal(ilanlariAyristir(m).ret, 'liste_spam');
+});
+test('Tüm araç tiplerini art arda sayan şablon atılır', () => {
+  const m = 'Muğla Menteşe Kapalı/Tenteli/Yüksek Yan/Açık/Frigo/Damperli Kamyonet 1ton' + TEL;
+  assert.equal(ilanlariAyristir(m).ret, 'liste_spam');
+});
+test('"sevkiyatyonetimi.com ... toplu paylaşılmıştır" atılır', () => {
+  const m = 'Malatya → Tokat / Erbaa\nTokat → Sivas / Merkez\nBu mesaj, sevkiyatyonetimi.com üzerinden aynı anda birçok WhatsApp grubunda toplu olarak paylaşılmıştır' + TEL;
+  assert.equal(ilanlariAyristir(m).ret, 'liste_spam');
+});
+test('Ev/ofis taşıma hizmet reklamı atılır', () => {
+  const m = 'Balıkesir merkez edremit akçay Cevresine\nGelen Nakliyeci Arkadaşların\nEşya İndirmesi\nEşya Yüklemesi\nSökülüp Montajı\nAsansör temini\nİtina ile hizmet verilmektedir' + TEL;
+  assert.equal(ilanlariAyristir(m).ret, 'is_hizmet');
+});
+test('Telefonlu tek rotalı gerçek ilan etkilenmez', () => {
+  assert.equal(rota('Konya Ereğli den Ankara ya 24 ton kapalı tır lazım' + TEL), 'Konya / Ereğli -> Ankara');
+});
+test('Başlık + altında varış listesi (telefonlu) etkilenmez', () => {
+  const r = ilanlariAyristir('KONYA ÇIKIŞLI\nAnkara\nİzmir\nBursa\nKapalı tır' + TEL);
+  assert.equal(r.ret, null);
+});
+test('WhatsApp kanal linki silinir, ilan kalır', () => {
+  const ham = 'https://whatsapp.com/channel/0029Vb0LfaQFy727MbnJfl0Z\nTRAKYA ÇELİK LOJİSTİK\nMalkara - İstanbul Ümraniye → Damper 900TL';
+  const t = linkTemizle(ham);
+  assert.ok(!/whatsapp\.com|http/i.test(t));
+  assert.ok(/Malkara/.test(t));
+  assert.equal(ilanlariAyristir(ham, { telefonZorunlu: false }).ilanlar.length, 1);
+});
+test('wa.me iletişim linki linkTemizle ile korunur', () => {
+  assert.ok(linkTemizle('Konya Ankara tır https://wa.me/905321112233').includes('wa.me/905321112233'));
 });
