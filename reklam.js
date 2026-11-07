@@ -55,8 +55,18 @@ function reklamKontrol(ham, ayar = {}) {
   return null;
 }
 
+// Yayınlanacak ham metinden bağlantıları siler (wa.me iletişim linkleri kalır). İlan kalır, link gider.
+function linkTemizle(ham) {
+  const koru = [];
+  let t = String(ham || '').replace(WA_ILETISIM, (m) => { koru.push(m); return `\u0001${koru.length - 1}\u0001`; });
+  t = t.replace(/(?:https?:\/\/|www\.)\S+/gi, ' ').replace(LINK, ' ')
+    .replace(/\b(?:chat\.whatsapp\.com|whatsapp\.com\/channel|t\.me)\/?\S*/gi, ' ');
+  t = t.replace(/\u0001(\d+)\u0001/g, (_, k) => koru[+k]);
+  return t.split(/\r?\n/).map(l => l.replace(/[ \t]{2,}/g, ' ').trim()).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 // "kelime1, kelime2" → normalize edilmiş dizi (3 harften kısalar yanlış eşleşmesin diye atılır)
 const kelimeListesi = (s) => String(s || '').split(',').map(normalize).filter(k => k.replace(/ /g, '').length >= 4);
 const telefonListesi = (s) => new Set(String(s || '').split(/[,;\n]+/).map(telefonNormalize).filter(Boolean));
 
-module.exports = { reklamKontrol, kelimeListesi, telefonListesi };
+module.exports = { reklamKontrol, kelimeListesi, telefonListesi, linkTemizle };
