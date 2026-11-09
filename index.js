@@ -31,7 +31,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { ilanlariAyristir, ilanAnahtari, normalize, firmaTemizle } = require('./parser');
+const { ilanlariAyristir, ilanAnahtari, normalize, firmaTemizle, telefonlariBul, telefonBicimle, aracTipiTespit, yerleriBul, yerMetni } = require('./parser');
 const { reklamKontrol, kelimeListesi, telefonListesi, linkTemizle } = require('./reklam');
 
 // ═══════════════ 1. AYARLAR ═══════════════
@@ -61,6 +61,8 @@ const CONFIG = {
   MUKERRER_SAAT: sayi(env.MUKERRER_SAAT, 6),
   MAX_MESAJ_YASI_DK: sayi(env.MAX_MESAJ_YASI_DK, 90), // bağlantı kopup gelince kaçan mesajlar da yakalansın
 
+  // HER_ILAN_GOSTER=true: yasaklılar (marka/telefon/grup/yabancı/hizmet/liste spamı) hariç, telefonlu ve yük dilli HER mesaj ilan olur
+  HER_ILAN: bool(env.HER_ILAN_GOSTER, true),
   BOS_ARAC_ATLA: bool(env.BOS_ARAC_ILANLARINI_ATLA, false),
   TEK_SEHIRLI_KABUL: bool(env.TEK_SEHIRLI_ILAN_KABUL, true),
   ROTA_BOL: bool(env.ROTA_BOL, false),                        // false (varsayılan): 1 mesaj = 1 ilan, ham mesaj tam gösterilir. true: her rota ayrı kart (trafik artar)
@@ -83,12 +85,30 @@ const CONFIG = {
 };
 
 const durum = { baglanti: 'baslatiliyor', qr: null, kod: null, sonMesaj: 0, baslangic: Date.now() };
-const ist = { mesaj: 0, eski: 0, ilan: 0, mukerrer: 0, sbKayit: 0, sbHata: 0, tgGonderilen: 0, tgHata: 0 };
+const ist = { mesaj: 0, eski: 0, kurtarilan: 0, ilan: 0, mukerrer: 0, sbKayit: 0, sbHata: 0, tgGonderilen: 0, tgHata: 0 };
 const retSayac = {};
 // Kaçmış olabilecek mesajların son örnekleri (/ret?key=PANEL_KEY sayfasından görülür) — bellekte en çok 60 kayıt
 const retOrnek = [];
 const ORNEK_RET = new Set(['rota_yok', 'sinyal_yok', 'detay_bos', 'cok_uzun', 'spam']);
 const YUK_DILI = /y[uü]k|t[ıi]r\b|\bton|ara[çc]|palet|kamyon|dorse/i;
+// Parser 'ilan değil' dese bile kurtarılabilecek (yumuşak) ret nedenleri. Sert olanlar (yabancı, hizmet, liste_spam, çok kısa/uzun) kurtarılmaz.
+const KURTAR_RET = new Set(['rota_yok', 'sinyal_yok', 'spam', 'telefon_yok', 'detay_bos']);
+function ilanKurtar(ham, gondericiTel) {
+  if (ham.length < 25 || !YUK_DILI.test(ham)) return null;
+  const tels = telefonlariBul(ham);
+  const tel = tels[0] || gondericiTel;
+  if (!tel) return null;
+  const yerler = yerleriBul(ham) || [];
+  const arac = /bo[sş]\s*ara[çc]|ara[çc]\s*(var|m[ıi]z)|bo[sş]um/i.test(ham);
+  return {
+    tur: arac ? 'ARAC' : 'YUK',
+    nereden: yerler[0] ? yerMetni(yerler[0]) : 'Belirtilmedi',
+    nereye: yerler[1] ? yerMetni(yerler[1]) : 'Belirtilmedi',
+    arac_tipi: aracTipiTespit(ham), detay: kisalt(ham.replace(/\s+/g, ' '), 300), ham_parca: ham,
+    firma: '', telefon_ham: tel, telefon: telefonBicimle(tel),
+    anahtar: ilanAnahtari(ham, tel), anahtar2: null
+  };
+}
 function ornekEkle(neden, ham) {
   retOrnek.push({ z: new Date().toISOString().slice(11, 19), neden, m: kisalt(ham.replace(/\s+/g, ' '), 220) });
   if (retOrnek.length > 60) retOrnek.shift();
@@ -155,7 +175,8 @@ const gorulenIlanlar = new Map(); // anahtar → zaman
 
 const mukerrerHash = (k) => crypto.createHash('sha256').update(String(k)).digest('hex');
 function mukerrerAnahtarlari(i) {
-  return [i.anahtar, i.anahtar2 ? 'g|' + i.anahtar2 : null].filter(Boolean).map(mukerrerHash);
+  // HER_ILAN açıkken gevşek anahtar (aynı tel+yer+tonaj) kullanılmaz: yalnız birebir aynı metin tekrar sayılır
+  return [i.anahtar, !CONFIG.HER_ILAN && i.anahtar2 ? 'g|' + i.anahtar2 : null].filter(Boolean).map(mukerrerHash);
 }
 function mukerrerMi(i) {
   const simdi = Date.now();
@@ -461,7 +482,11 @@ async function mesajiIsle(sock, msg) {
     return;
   }
 
-  const { ilanlar, ret, terim } = ilanlariAyristir(ham, { tekSehirKabul: CONFIG.TEK_SEHIRLI_KABUL, gondericiTelefon: gondericiTel, yabanciEngelle: CONFIG.YABANCI_ENGELLE, telefonZorunlu: false, rotaBol: CONFIG.ROTA_BOL });
+  let { ilanlar, ret, terim } = ilanlariAyristir(ham, { tekSehirKabul: CONFIG.TEK_SEHIRLI_KABUL, gondericiTelefon: gondericiTel, yabanciEngelle: CONFIG.YABANCI_ENGELLE, telefonZorunlu: false, rotaBol: CONFIG.ROTA_BOL });
+  if (!ilanlar.length && CONFIG.HER_ILAN && KURTAR_RET.has(ret)) {
+    const k = ilanKurtar(ham, gondericiTel);
+    if (k) { ilanlar = [k]; ist.kurtarilan++; }
+  }
   if (!ilanlar.length) {
     retSayac[ret] = (retSayac[ret] || 0) + 1;
     if (ORNEK_RET.has(ret) || (ret === 'telefon_yok' && ham.length >= 25 && YUK_DILI.test(ham))) ornekEkle(ret, ham);
