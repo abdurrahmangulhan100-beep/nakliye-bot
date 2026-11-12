@@ -57,6 +57,8 @@ function retKaydet(neden, terim, metin) {
 // ═══════════ Mükerrer (aynı metin MUKERRER_SAAT içinde tekrar gelirse atılır) ═══════════
 const gorulen = new Map();   // metin özeti → zaman
 const gorulenId = new Map(); // WhatsApp mesaj kimliği → zaman (aynı mesajın çift gelmesine karşı)
+const PARCA_MS = (Number(env.PARCA_SANIYE) || 120) * 1000;
+const parcalar = new Map();  // grup|gönderici → { metin, tur: 'ilan' | 'tel', z }  (ilan ve numarası ayrı mesaj atanlar için)
 const ozet = (t) => crypto.createHash('sha1').update(normalize(t)).digest('hex');
 function mukerrerMi(metin) {
   const k = ozet(metin), t = gorulen.get(k);
@@ -135,8 +137,21 @@ async function mesajIsle(sock, m) {
 
   if (await grupEngelliMi(sock, jid)) return retKaydet('engelli_grup', '', metin);
 
-  const k = karar(metin, { yanit, etiket });
-  if (!k.ok) return retKaydet(k.neden, k.terim, metin);
+  let k = karar(metin, { yanit, etiket });
+  if (!k.ok) {
+    // İlan metni ile numarası AYRI mesajlarda geldiyse (aynı kişiden, kısa sürede) birleştirilir
+    const tur = k.aday ? 'ilan' : k.sadeceTel ? 'tel' : null;
+    if (tur) {
+      const pk = jid + '|' + (m.key.participant || ''), p = parcalar.get(pk);
+      if (p && p.tur !== tur && Date.now() - p.z < PARCA_MS) {
+        parcalar.delete(pk);
+        const birlesik = tur === 'tel' ? p.metin + '\n' + metin : metin + '\n' + p.metin;
+        const k2 = karar(birlesik, { yanit, etiket });
+        if (k2.ok) { k = k2; log('🔗 ilan + numara ayrı mesajdı, birleştirildi'); }
+      } else parcalar.set(pk, { metin, tur, z: Date.now() });
+    }
+    if (!k.ok) return retKaydet(k.neden, k.terim, metin);
+  }
   if (mukerrerMi(k.metin)) { ist.mukerrer++; return; }   // sessiz: sayı 📊 özetinde
 
   if (await kaydet(satir(k, m.pushName))) {
@@ -144,6 +159,7 @@ async function mesajIsle(sock, m) {
     log(`✅ KABUL ${k.nereden} → ${k.nereye} | ${k.arac} | ${k.telefonlar[0]}${k.linkSayisi ? ' | link silindi' : ''}`);
   } else {
     ist.yazilamadi++;
+    gorulen.delete(ozet(k.metin));   // yazılamadıysa tekrar gelirse yeniden denensin
     log(`❌ İLAN KAYBEDİLDİ (Supabase 3 denemede yazamadı): ${kisalt(k.metin, 90)}`);
   }
 }
@@ -176,7 +192,8 @@ async function baslat() {
     markOnlineOnConnect: false,
     syncFullHistory: false,
     shouldSyncHistoryMessage: () => false,
-    generateHighQualityLinkPreview: false
+    generateHighQualityLinkPreview: false,
+    shouldIgnoreJid: (j) => !String(j).endsWith('@g.us')   // özel mesaj / durum (status) işlenmesin
   });
 
   let kodIstendi = false;
@@ -225,6 +242,7 @@ setInterval(() => {   // 10 dk'da bir özet + bellek temizliği
   const simdi = Date.now();
   for (const [k, t] of gorulen) if (simdi - t > AYAR.MUKERRER_SAAT * 3600e3) gorulen.delete(k);
   for (const [k, t] of gorulenId) if (simdi - t > 3600e3) gorulenId.delete(k);
+  for (const [k, p] of parcalar) if (simdi - p.z > PARCA_MS) parcalar.delete(k);
   log(`📊 mesaj:${ist.mesaj} eski:${ist.eski} kabul:${ist.kabul} mükerrer:${ist.mukerrer} yazılamadı:${ist.yazilamadi} | ret: ${JSON.stringify(retler)}`);
 }, 10 * 60e3).unref();
 setInterval(() => eskileriSil().catch(() => {}), 30 * 60e3).unref();
