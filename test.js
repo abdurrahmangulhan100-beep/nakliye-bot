@@ -23,6 +23,9 @@ red(`Bugünkü yük taşıma programı İzmir Bursa ${TEL}`, 'gunluk_sablon');
 red(`Lütfen WhatsApp üzerinden bana mesaj bırakın İstanbul Ankara ${TEL}`, 'gunluk_sablon');
 red(`Bugünün yükleri: Konya Antalya 10 palet ${TEL}`, 'gunluk_sablon');
 
+red(`*BUGÜN YÜKLER* *MANAVGAT YÜKLEMELİ* İstanbul ${TEL}`, 'gunluk_sablon');
+red(`PERŞEMBE GÜNÜ SEVKİYAT LİSTESİ Çorum Samsun ${TEL}`, 'gunluk_sablon');
+
 // Boş araç paylaşanlar
 red(`Boş araç var İstanbul çıkışlı Ankara ${TEL}`, 'bos_arac');
 red(`Aracım boş, yük arıyorum İstanbul Ankara hattı ${TEL}`, 'bos_arac');
@@ -76,3 +79,5 @@ kabul(`Gebze'den Antep'e 15 ton yük ${TEL}`, k => {
   assert.strictEqual(k.nereye, 'Gaziantep');
 });
 kabul(`Yük indirme Ankara ${TEL} 3 palet`); // "indir" kelimesi yüzünden reklam sayılmamalı
+kabul(`Kartepe Güçlükonak 1 ATV 05326574355 Murathan Lojistik`);
+kabul(`Bugün yük var İstanbul'dan Ankara'ya 10 palet ${TEL}`);
