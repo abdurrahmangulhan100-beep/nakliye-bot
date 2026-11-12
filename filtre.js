@@ -4,12 +4,13 @@ const { MARKALAR, KURALLAR, YUK_SINYALI } = require('./kurallar');
 const { normalize, linkTemizle, telefonlariBul, sehirBul, rota, aracTipi } = require('./metin');
 
 const MAX_UZUNLUK = 1500; // bundan uzun = liste / reklam metni
-const ret = (neden, terim = '') => ({ ok: false, neden, terim });
+const MAX_TELEFON = 10;   // bundan fazla numara = toplu liste (çok numaralı gerçek ilanlar geçer)
+const ret = (neden, terim = '', ekstra = {}) => ({ ok: false, neden, terim, ...ekstra });
 
 /**
  * karar(ham, { yanit, etiket })
  *  yanit: mesaj başka bir mesaja cevap mı (→ sohbet)   etiket: biri @ ile etiketlenmiş mi (→ sohbet)
- * Dönüş: { ok:false, neden, terim }  veya  { ok:true, metin, telefonlar, nereden, nereye, arac, linkSayisi }
+ * Dönüş: { ok:false, neden, terim, aday?, sadeceTel? }  veya  { ok:true, metin, telefonlar, nereden, nereye, arac, linkSayisi }
  */
 function karar(ham, { yanit = false, etiket = false } = {}) {
   for (const re of MARKALAR) {
@@ -20,7 +21,7 @@ function karar(ham, { yanit = false, etiket = false } = {}) {
   const { metin, linkSayisi } = linkTemizle(ham); // linkler çıkar, kalan metin değerlendirilir
   const n = normalize(metin);
 
-  if (n.length < 20) return ret('cok_kisa');
+  if (n.length < 20) return ret('cok_kisa', '', { sadeceTel: telefonlariBul(metin).length > 0 }); // sadece numara = ilanın telefon parçası olabilir
   if (metin.length > MAX_UZUNLUK) return ret('cok_uzun');
   if (yanit) return ret('sohbet', 'yanit');
   if (etiket) return ret('sohbet', 'etiket');
@@ -34,11 +35,11 @@ function karar(ham, { yanit = false, etiket = false } = {}) {
   }
 
   const telefonlar = telefonlariBul(metin);
-  if (!telefonlar.length) return ret('telefon_yok');
-  if (telefonlar.length >= 4) return ret('cok_telefon');
-
   const sehirler = sehirBul(n);
-  if (!sehirler.length && !YUK_SINYALI.test(n)) return ret('sinyal_yok');
+  const sinyal = sehirler.length > 0 || YUK_SINYALI.test(n);
+  if (!telefonlar.length) return ret('telefon_yok', '', { aday: sinyal }); // aday: ilan metni olabilir, numarası ayrı mesajda gelmiş olabilir
+  if (telefonlar.length > MAX_TELEFON) return ret('cok_telefon');
+  if (!sinyal) return ret('sinyal_yok', '', { sadeceTel: true });
 
   return { ok: true, metin, telefonlar, ...rota(sehirler), arac: aracTipi(n), linkSayisi };
 }
