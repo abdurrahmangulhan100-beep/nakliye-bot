@@ -81,3 +81,18 @@ kabul(`Gebze'den Antep'e 15 ton yük ${TEL}`, k => {
 kabul(`Yük indirme Ankara ${TEL} 3 palet`); // "indir" kelimesi yüzünden reklam sayılmamalı
 kabul(`Kartepe Güçlükonak 1 ATV 05326574355 Murathan Lojistik`);
 kabul(`Bugün yük var İstanbul'dan Ankara'ya 10 palet ${TEL}`);
+
+// Çok numaralı gerçek ilan geçer, toplu liste (10+ numara) atılır
+kabul(`TMO arpa taşıması Kayseri'den Antep'e kısa dorse 5 araç ${TEL} 0533 111 22 33 0534 222 33 44 0535 333 44 55 0536 444 55 66`);
+red(`Palet yük Ankara ` + Array.from({ length: 11 }, (_, n) => `0532 100 20 ${30 + n}`).join(' '), 'cok_telefon');
+
+// Süslü yazı tipi (küçük büyük harf) ve numara-ayrı-mesaj ipuçları
+kabul(`ᴀʀᴀᴄ Konya'dan Ankara'ya 10 palet yük ${TEL}`);
+red(`ʏᴜᴋ ᴀꜱᴀɴꜱöʀʟᴜ ev taşıma İstanbul Ankara ${TEL}`, 'asansor');
+test('ilan + numara ayrı mesaj ipuçları', () => {
+  const a = karar('Yarın yüklemeli Marmaraereğlisi - AMASYA MERKEZ DAMPERLİ 1 TIR 2000+ kdv');
+  assert.strictEqual(a.neden, 'telefon_yok'); assert.strictEqual(a.aday, true);
+  const b = karar('*İLETİŞİM:* 0501 155 34 41');
+  assert.strictEqual(b.sadeceTel, true);
+  assert.strictEqual(karar(a.metin ? '' : 'Yarın yüklemeli Marmaraereğlisi - AMASYA MERKEZ DAMPERLİ 1 TIR 2000+ kdv\n*İLETİŞİM:* 0501 155 34 41').ok, true);
+});
