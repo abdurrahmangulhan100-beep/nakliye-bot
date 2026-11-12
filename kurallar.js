@@ -26,6 +26,8 @@ const KURALLAR = [
       /\bbugunun\s+(?:\w+\s+){0,2}?(?:gorev|yuk|tasima|lojistik|nakliye|program|ilan)\w*/,
       /\b(?:gunluk|guncel)\s+(?:yuk|tasima|lojistik|nakliye)\s+(?:listesi|program|gorev|ilan)\w*/,
       /\b(?:yuk|tasima|lojistik|nakliye|sevkiyat)\s+(?:tasima\s+)?(?:gorev|program)\w*/,
+      /\bbugun\s+yukler\b/,
+      /\b(?:yuk|sevkiyat)\s+listesi\w*/,
       /\bmesaj\s+birak\w*/,
       /\bwhatsapp\s+uzerinden\s+(?:\w+\s+){0,2}?mesaj/
     ]
@@ -76,6 +78,6 @@ const KURALLAR = [
 ];
 
 // İlan sayılması için yük/araç dili (şehir adı da yeterli sayılır)
-const YUK_SINYALI = /\b(?:yuk\w*|ton\w*|palet\w*|tir\w*|kamyon\w*|dorse\w*|nakliye\w*|tasima\w*|sevkiyat\w*|koli\w*|parca\w*|paket\w*|esya\w*|\d+\s?(?:kg|m3|desi))\b/;
+const YUK_SINYALI = /\b(?:yuk\w*|ton\w*|palet\w*|tir\w*|kamyon\w*|dorse\w*|nakliye\w*|tasima\w*|sevkiyat\w*|koli\w*|parca\w*|paket\w*|esya\w*|atv\b|makara\w*|yukleme\w*|\d+\s?(?:kg|m3|desi))\b/;
 
 module.exports = { MARKALAR, KURALLAR, YUK_SINYALI };
