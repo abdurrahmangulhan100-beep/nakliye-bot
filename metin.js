@@ -2,8 +2,11 @@
 // Metin yardımcıları: sadeleştirme, link temizleme, telefon / şehir / araç tipi bulma.
 
 const TR = { 'ç': 'c', 'ğ': 'g', 'ı': 'i', 'ö': 'o', 'ş': 's', 'ü': 'u', 'â': 'a', 'î': 'i', 'û': 'u' };
+// Süslü yazı tipleri (ᴋᴜᴄᴜᴋ ʙᴀꜱ, 𝗞𝗮𝗹𝗶𝗻, tam genişlik) düz harfe çevrilir; yoksa filtreler atlanır / ilan "çok kısa" sayılır.
+const KB = { '\u1D00': 'a', '\u0299': 'b', '\u1D04': 'c', '\u1D05': 'd', '\u1D07': 'e', '\uA730': 'f', '\u0262': 'g', '\u029C': 'h', '\u026A': 'i', '\u1D0A': 'j', '\u1D0B': 'k', '\u029F': 'l', '\u1D0D': 'm', '\u0274': 'n', '\u1D0F': 'o', '\u1D18': 'p', '\u0280': 'r', '\uA731': 's', '\u1D1B': 't', '\u1D1C': 'u', '\u1D20': 'v', '\u1D21': 'w', '\u028F': 'y', '\u1D22': 'z' };
+const KB_RE = new RegExp('[' + Object.keys(KB).join('') + ']', 'g');
 function normalize(t) {
-  return String(t ?? '').toLocaleLowerCase('tr').replace(/\u0307/g, '')
+  return String(t ?? '').normalize('NFKC').replace(KB_RE, c => KB[c]).toLocaleLowerCase('tr').replace(/\u0307/g, '')
     .replace(/[çğıöşüâîû]/g, c => TR[c])
     .replace(/['’‘`´ʼ]/g, '')
     .replace(/[^a-z0-9]+/g, ' ').trim();
@@ -26,7 +29,7 @@ const MOBIL = /(?<!\d)(?:\+?90[\s.-]?|0[\s.-]?)?\(?(5\d{2})\)?[\s.-]?(\d{3})[\s.
 const SABIT = /(?<!\d)0[\s.-]?\(?([234]\d{2})\)?[\s.-]?(\d{3})[\s.-]?(\d{2})[\s.-]?(\d{2})(?!\d)/g;
 function telefonlariBul(t) {
   const set = new Set();
-  for (const re of [MOBIL, SABIT]) for (const m of String(t).matchAll(re)) set.add('0' + m[1] + m[2] + m[3] + m[4]);
+  for (const re of [MOBIL, SABIT]) for (const m of String(t).normalize('NFKC').matchAll(re)) set.add('0' + m[1] + m[2] + m[3] + m[4]);
   return [...set];
 }
 
