@@ -17,6 +17,12 @@ const QRCode = require('qrcode');
 const { karar } = require('./filtre');
 const { normalize } = require('./metin');
 
+// libsignal'in her oturum değişiminde bastığı dev "Closing session" bloklarını sustur
+for (const f of ['info', 'warn']) {
+  const orj = console[f].bind(console);
+  console[f] = (...a) => { if (typeof a[0] === 'string' && /^(Closing|Removing|Opening|Migrating) .*session|^Session already/i.test(a[0])) return; orj(...a); };
+}
+
 const env = process.env;
 const AYAR = {
   SB_URL: env.SUPABASE_URL || '',
@@ -131,7 +137,7 @@ async function mesajIsle(sock, m) {
 
   const k = karar(metin, { yanit, etiket });
   if (!k.ok) return retKaydet(k.neden, k.terim, metin);
-  if (mukerrerMi(k.metin)) { ist.mukerrer++; return retKaydet('mukerrer', '', metin); }
+  if (mukerrerMi(k.metin)) { ist.mukerrer++; return; }   // sessiz: sayı 📊 özetinde
 
   if (await kaydet(satir(k, m.pushName))) {
     ist.kabul++;
@@ -157,7 +163,7 @@ async function baslat() {
   const { useMultiFileAuthState, fetchLatestBaileysVersion, DisconnectReason, Browsers } = K;
 
   let logger;
-  try { logger = require('pino')({ level: 'warn' }); } catch {
+  try { logger = require('pino')({ level: 'fatal' }); } catch {
     const s = { level: 'silent', child() { return s; }, trace() {}, debug() {}, info() {}, warn() {}, error() {}, fatal() {} };
     logger = s;
   }
