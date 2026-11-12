@@ -1,17 +1,12 @@
 name: Nakliye Bot Otomatik Güncelleme
-
 on:
   push:
-    branches:
-      - main
-
+    branches: [main]
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Sunucuya bağlan ve güncelle
-        uses: appleboy/ssh-action@v1.2.0
+      - uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
@@ -21,8 +16,6 @@ jobs:
             cd ${{ secrets.APP_DIR }}
             git pull origin main
             npm ci --omit=dev
-            node --check index.js
-            node --check parser.js
-            npm test
+            node --check index.js && node --check filtre.js && node --test test.js
             pm2 restart nakliye-bot || pm2 start index.js --name nakliye-bot
             pm2 save
