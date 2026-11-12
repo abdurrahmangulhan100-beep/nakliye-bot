@@ -1,14 +1,9 @@
 {
   "name": "nakliye-bot",
-  "version": "3.1.0",
-  "description": "WhatsApp Nakliye İlan Dinleyici",
+  "version": "4.0.0",
+  "description": "WhatsApp gruplarindan nakliye ilani cekip Supabase'e yazan sade bot",
   "main": "index.js",
-  "scripts": {
-    "start": "node index.js",
-    "test": "node --test test.js"
-  },
-  "license": "ISC",
-  "type": "commonjs",
+  "scripts": { "start": "node index.js", "test": "node --test test.js" },
   "engines": { "node": ">=20" },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.2",
