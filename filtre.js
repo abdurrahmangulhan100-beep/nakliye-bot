@@ -1,19 +1,19 @@
 'use strict';
 // Karar verici: bir WhatsApp mesajı ilan mı, değil mi? Yan etkisi yok, ağ yok → kolay test edilir.
-const { MARKALAR, KURALLAR, YUK_SINYALI, LISTE_MIN_SATIR } = require('./kurallar');
+const { MARKALAR, KURALLAR, YUK_SINYALI, LISTE_MIN_SATIR, LISTE_MIN_SATIR_TELLI } = require('./kurallar');
 const { normalize, linkTemizle, telefonlariBul, sehirBul, rota, aracTipi } = require('./metin');
 
 const MAX_UZUNLUK = 1500; // bundan uzun = liste / reklam metni
 const MAX_TELEFON = 10;   // bundan fazla numara = toplu liste (çok numaralı gerçek ilanlar geçer)
 const TONAJ = /\b\d+(?: \d{3})?\s?(?:ton|kg|palet|m3)\b/;
 // Satır satır "Şehir Şehir Araç Tonaj" yazan toplu liste mi? (tek mesaja dizilmiş onlarca ilan)
-function listeMi(metin) {
+function rotaSatiri(metin) {
   let say = 0;
   for (const satir of metin.split(/\r?\n/)) {
     const n = normalize(satir);
     if (sehirBul(n).length && (aracTipi(n) !== 'Belirtilmedi' || TONAJ.test(n))) say++;
   }
-  return say >= LISTE_MIN_SATIR;
+  return say;
 }
 const ret = (neden, terim = '', ekstra = {}) => ({ ok: false, neden, terim, ...ekstra });
 
@@ -44,9 +44,8 @@ function karar(ham, { yanit = false, etiket = false } = {}) {
     }
   }
 
-  if (listeMi(metin)) return ret('liste'); // numarasız da, numaralı da: liste ilan değildir
-
   const telefonlar = telefonlariBul(metin);
+  if (rotaSatiri(metin) >= (telefonlar.length ? LISTE_MIN_SATIR_TELLI : LISTE_MIN_SATIR)) return ret('liste');
   const sehirler = sehirBul(n);
   const sinyal = sehirler.length > 0 || YUK_SINYALI.test(n);
   if (!telefonlar.length) return ret('telefon_yok', '', { aday: sinyal }); // aday: ilan metni olabilir, numarası ayrı mesajda gelmiş olabilir
