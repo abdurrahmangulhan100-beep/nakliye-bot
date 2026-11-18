@@ -82,7 +82,7 @@ const unut = (k) => anahtarlar(k).forEach(x => gorulen.delete(x));
 async function gecmisiYukle() {
   const sinir = new Date(Date.now() - AYAR.MUKERRER_SAAT * 3600e3).toISOString();
   let n = 0;
-  for (let bas = 0; bas < 10000; bas += 1000) {
+  for (let bas = 0; bas < 50000; bas += 1000) {
     const { data, error } = await db.from(AYAR.TABLO).select('from_city,to_city,vehicle_type,cargo_detail,created_at')
       .gte('created_at', sinir).order('created_at', { ascending: false }).range(bas, bas + 999);
     if (error) { log(`⚠️ Geçmiş imzalar yüklenemedi: ${error.message}`); return; }
