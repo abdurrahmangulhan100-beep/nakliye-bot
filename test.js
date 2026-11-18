@@ -96,3 +96,31 @@ test('ilan + numara ayrı mesaj ipuçları', () => {
   assert.strictEqual(b.sadeceTel, true);
   assert.strictEqual(karar(a.metin ? '' : 'Yarın yüklemeli Marmaraereğlisi - AMASYA MERKEZ DAMPERLİ 1 TIR 2000+ kdv\n*İLETİŞİM:* 0501 155 34 41').ok, true);
 });
+
+// ── v5: liste / numarasız ilan ──
+const LISTE3 = `Kocaeli Başiskele--Kocaeli Başiskele Kapalı/Tenteli/Yüksek Yan/Açık/Frigo/Damperli Kamyonet 1.500kg 10Palet
+Ankara--Denizli TIR
+Adana--Konya Ilgın TIR 6ton
+Sakarya--Mersin Kapalı 10 teker 2ton 14Palet
+WhatsApp üzerinden benimle iletişim kurun.`;
+red(LISTE3 + '\n' + TEL, 'gunluk_sablon');   // CTA cümlesi
+red(LISTE3.replace(/\nWhatsApp.*$/, '') + '\n' + TEL, 'liste');
+red(`Bugün için nakliye
+İstanbul Çekmeköy Kayseri TIR 24ton
+Ankara Denizli TIR
+Adana Konya Ilgın TIR 6ton
+Düzce Çilimli Sivas Divriği Açık TIR ${TEL}`, 'liste');
+kabul(`Yükleme: Kayseri OSB
+Teslim: Ankara Sincan
+Cinsi: Kuru gıda, 24 palet, 18 ton
+Tır (kapalı dorse) lazım, yarın yükleme
+Yükleme saati 08:00, boşaltma ertesi gün
+Fiyat görüşülür, kdv dahil değil
+Detay için arayın ${TEL}`);
+kabul(`İstanbul Ankara 24 ton\nİstanbul İzmir 10 ton ${TEL}`);   // 2 rota hâlâ ilan
+test('numarasız ilan + gönderici numarası', () => {
+  const a = karar('Yarın yüklemeli Marmaraereğlisi - AMASYA MERKEZ DAMPERLİ 1 TIR 2000+ kdv');
+  assert.strictEqual(a.neden, 'telefon_yok'); assert.strictEqual(a.aday, true);
+  const b = karar('Yarın yüklemeli Marmaraereğlisi - AMASYA MERKEZ DAMPERLİ 1 TIR 2000+ kdv\n📞 0542 169 80 53');
+  assert.strictEqual(b.ok, true); assert.deepStrictEqual(b.telefonlar, ['05421698053']);
+});
