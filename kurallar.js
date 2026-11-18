@@ -82,6 +82,9 @@ const YUK_SINYALI = /\b(?:yuk\w*|ton\w*|palet\w*|tir\w*|kamyon\w*|dorse\w*|nakli
 
 // Tek mesajda bu kadar (veya daha fazla) "rota satırı" (satırda şehir + araç/tonaj) varsa mesaj bir LİSTEDİR, ilan değildir.
 // Tek rotalı uzun ilanlar etkilenmez (onlarda böyle satır 1-2 tanedir). Daha sıkı istersen 2, gevşek istersen 4 yap.
+// Mesajda KENDİ telefon numarası yoksa 3 satır yeter (numarasız toplu listeler); numarası varsa gerçek komisyoncu
+// paylaşımı olabilir, ancak çok uzun liste (8+ satır) ise atılır.
 const LISTE_MIN_SATIR = 3;
+const LISTE_MIN_SATIR_TELLI = 8;
 
-module.exports = { MARKALAR, KURALLAR, YUK_SINYALI, LISTE_MIN_SATIR };
+module.exports = { MARKALAR, KURALLAR, YUK_SINYALI, LISTE_MIN_SATIR, LISTE_MIN_SATIR_TELLI };
