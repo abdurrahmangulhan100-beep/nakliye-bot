@@ -29,7 +29,7 @@ const KURALLAR = [
       /\bbugun\s+yukler\b/,
       /\b(?:yuk|sevkiyat)\s+listesi\w*/,
       /\bmesaj\s+birak\w*/,
-      /\bwhatsapp\s+uzerinden\s+(?:\w+\s+){0,2}?mesaj/
+      /\bwhatsapp\s+uzerinden\s+(?:\w+\s+){0,3}?(?:mesaj|yaz\w*|iletisim|ulas\w*)/
     ]
   },
   {
@@ -80,4 +80,8 @@ const KURALLAR = [
 // İlan sayılması için yük/araç dili (şehir adı da yeterli sayılır)
 const YUK_SINYALI = /\b(?:yuk\w*|ton\w*|palet\w*|tir\w*|kamyon\w*|dorse\w*|nakliye\w*|tasima\w*|sevkiyat\w*|koli\w*|parca\w*|paket\w*|esya\w*|atv\b|makara\w*|yukleme\w*|\d+\s?(?:kg|m3|desi))\b/;
 
-module.exports = { MARKALAR, KURALLAR, YUK_SINYALI };
+// Tek mesajda bu kadar (veya daha fazla) "rota satırı" (satırda şehir + araç/tonaj) varsa mesaj bir LİSTEDİR, ilan değildir.
+// Tek rotalı uzun ilanlar etkilenmez (onlarda böyle satır 1-2 tanedir). Daha sıkı istersen 2, gevşek istersen 4 yap.
+const LISTE_MIN_SATIR = 3;
+
+module.exports = { MARKALAR, KURALLAR, YUK_SINYALI, LISTE_MIN_SATIR };
