@@ -3,8 +3,8 @@
 const { MARKALAR, KURALLAR, YUK_SINYALI, LISTE_MIN_SATIR, LISTE_MIN_SATIR_TELLI } = require('./kurallar');
 const { normalize, linkTemizle, telefonlariBul, sehirBul, rota, aracTipi } = require('./metin');
 
-const MAX_UZUNLUK = 1500; // bundan uzun = liste / reklam metni
-const MAX_TELEFON = 10;   // bundan fazla numara = toplu liste (çok numaralı gerçek ilanlar geçer)
+const MAX_UZUNLUK = 6000; // yalnız bundan uzunsa ret (gerçek uzun ilanlar geçer); DB için 3000 karaktere kısaltılır
+const MAX_TELEFON = 10;   // bundan fazla numara = toplu liste
 const TONAJ = /\b\d+(?: \d{3})?\s?(?:ton|kg|palet|m3)\b/;
 // Satır satır "Şehir Şehir Araç Tonaj" yazan toplu liste mi? (tek mesaja dizilmiş onlarca ilan)
 function rotaSatiri(metin) {
@@ -31,7 +31,7 @@ function karar(ham, { yanit = false, etiket = false } = {}) {
   const { metin, linkSayisi } = linkTemizle(ham); // linkler çıkar, kalan metin değerlendirilir
   const n = normalize(metin);
 
-  if (n.length < 20) return ret('cok_kisa', '', { sadeceTel: telefonlariBul(metin).length > 0 }); // sadece numara = ilanın telefon parçası olabilir
+  if (n.length < 12) return ret('cok_kisa', '', { sadeceTel: telefonlariBul(metin).length > 0 }); // sadece numara = ilanın telefon parçası olabilir
   if (metin.length > MAX_UZUNLUK) return ret('cok_uzun');
   if (yanit) return ret('sohbet', 'yanit');
   if (etiket) return ret('sohbet', 'etiket');
@@ -52,7 +52,7 @@ function karar(ham, { yanit = false, etiket = false } = {}) {
   if (telefonlar.length > MAX_TELEFON) return ret('cok_telefon');
   if (!sinyal) return ret('sinyal_yok', '', { sadeceTel: true });
 
-  return { ok: true, metin, telefonlar, ...rota(sehirler), arac: aracTipi(n), linkSayisi };
+  return { ok: true, metin: metin.length > 3000 ? metin.slice(0, 3000) : metin, telefonlar, ...rota(sehirler), arac: aracTipi(n), linkSayisi };
 }
 
 module.exports = { karar };
