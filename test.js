@@ -104,12 +104,10 @@ Adana--Konya Ilgın TIR 6ton
 Sakarya--Mersin Kapalı 10 teker 2ton 14Palet
 WhatsApp üzerinden benimle iletişim kurun.`;
 red(LISTE3 + '\n' + TEL, 'gunluk_sablon');   // CTA cümlesi
-red(LISTE3.replace(/\nWhatsApp.*$/, '') + '\n' + TEL, 'liste');
-red(`Bugün için nakliye
-İstanbul Çekmeköy Kayseri TIR 24ton
-Ankara Denizli TIR
-Adana Konya Ilgın TIR 6ton
-Düzce Çilimli Sivas Divriği Açık TIR ${TEL}`, 'liste');
+const LISTE_SIZ = LISTE3.replace(/\nWhatsApp.*$/, '');
+red(LISTE_SIZ, 'liste');                       // numarasız toplu liste
+kabul(LISTE_SIZ + '\n' + TEL);                 // komisyoncunun kendi numarasıyla 4 yük: ilan kalır
+red(Array.from({ length: 9 }, () => 'Ankara Denizli TIR 6ton').join('\n') + '\n' + TEL, 'liste'); // numaralı ama çok uzun liste
 kabul(`Yükleme: Kayseri OSB
 Teslim: Ankara Sincan
 Cinsi: Kuru gıda, 24 palet, 18 ton
