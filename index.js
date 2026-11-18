@@ -47,7 +47,7 @@ if (!AYAR.SB_URL || !AYAR.SB_KEY) { console.error('❌ SUPABASE_URL ve SUPABASE_
 const db = createClient(AYAR.SB_URL, AYAR.SB_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
 
 // ═══════════ İstatistik ═══════════
-const ist = { mesaj: 0, eski: 0, kabul: 0, mukerrer: 0, yazilamadi: 0, profilTel: 0, telCozulemedi: 0 };
+const ist = { mesaj: 0, eski: 0, kabul: 0, mukerrer: 0, yazilamadi: 0, profilTel: 0, telCozulemedi: 0, telYabanci: 0, telLid: 0, telYok: 0 };
 const retler = {};
 function retKaydet(neden, terim, metin) {
   retler[neden] = (retler[neden] || 0) + 1;
@@ -170,7 +170,9 @@ async function gondericiTel(sock, m) {
     if (!j) j = await lidCoz(sock, m.key.remoteJid, k.participant);
   }
   const d = String(j || '').split('@')[0].split(':')[0].replace(/\D/g, '');
-  return /^905\d{9}$/.test(d) ? `0${d.slice(2, 5)} ${d.slice(5, 8)} ${d.slice(8, 10)} ${d.slice(10)}` : null;
+  if (/^905\d{9}$/.test(d)) return `0${d.slice(2, 5)} ${d.slice(5, 8)} ${d.slice(8, 10)} ${d.slice(10)}`;
+  m._telNeden = !d ? (String(k.participant || '').endsWith('@lid') ? 'lid' : 'yok') : 'yabanci';   // teşhis için
+  return null;
 }
 
 const grupAdlari = new Map();
@@ -205,7 +207,7 @@ async function mesajIsle(sock, m) {
     if (tel) {
       const k2 = karar(metin + '\n📞 ' + tel, { yanit, etiket });
       if (k2.ok) { k = k2; ist.profilTel++; }
-    } else ist.telCozulemedi++;
+    } else { ist.telCozulemedi++; const n = m._telNeden; if (n === 'yabanci') ist.telYabanci++; else if (n === 'lid') ist.telLid++; else ist.telYok++; }
   }
   if (!k.ok) {
     // İlan metni ile numarası AYRI mesajlarda geldiyse (aynı kişiden, kısa sürede) birleştirilir
@@ -312,7 +314,7 @@ setInterval(() => {   // 10 dk'da bir özet + bellek temizliği
   for (const [k, t] of gorulen) if (simdi - t > AYAR.MUKERRER_SAAT * 3600e3) gorulen.delete(k);
   for (const [k, t] of gorulenId) if (simdi - t > 3600e3) gorulenId.delete(k);
   for (const [k, p] of parcalar) if (simdi - p.z > PARCA_MS) parcalar.delete(k);
-  log(`📊 mesaj:${ist.mesaj} eski:${ist.eski} kabul:${ist.kabul} mükerrer:${ist.mukerrer} yazılamadı:${ist.yazilamadi} profilNo:${ist.profilTel} noÇözülemedi:${ist.telCozulemedi} | ret: ${JSON.stringify(retler)}`);
+  log(`📊 mesaj:${ist.mesaj} eski:${ist.eski} kabul:${ist.kabul} mükerrer:${ist.mukerrer} yazılamadı:${ist.yazilamadi} profilNo:${ist.profilTel} noÇözülemedi:${ist.telCozulemedi} (yabancıNo:${ist.telYabanci} lidÇözülemedi:${ist.telLid} gönderenYok:${ist.telYok}) | ret: ${JSON.stringify(retler)}`);
 }, 10 * 60e3).unref();
 setInterval(() => eskileriSil().catch(() => {}), 30 * 60e3).unref();
 process.on('unhandledRejection', (e) => log('⚠️ unhandledRejection:', e?.message || e));
