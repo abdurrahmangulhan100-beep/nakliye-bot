@@ -64,7 +64,7 @@ const ozet = (t) => crypto.createHash('sha1').update(normalize(t)).digest('hex')
 const TONAJ = /(\d+(?: \d{3})?)\s?(ton|kg|palet|m3|desi)\w*/;
 function anahtarlar(k) {
   const a = ['m:' + ozet(k.metin)];
-  if (k.nereden !== 'Belirtilmedi' || k.nereye !== 'Belirtilmedi') {
+  if (k.nereden !== 'Belirtilmedi' && k.nereye !== 'Belirtilmedi') {   // rota imzası yalnız iki şehir de biliniyorsa (yoksa farklı ilanlar yanlışlıkla birleşir)
     const t = normalize(k.metin).match(TONAJ);
     a.push(['r', (k.telefonlar || [])[0], k.nereden, k.nereye, k.arac, t ? t[1] + t[2] : ''].join('|'));
   }
@@ -140,12 +140,34 @@ function icerik(msg) {
   };
 }
 
+// Yeni WhatsApp'ta gönderici numara yerine LID ile gelir; grup üye listesinden (lid → numara) çözülür.
+// Grup bilgisi yavaş yavaş (1,5 sn arayla) ve grup başına en fazla 10 dakikada bir çekilir (WhatsApp'ı yormamak için).
+const lidPn = new Map(), grupSon = new Map();
+let sira = Promise.resolve();
+const sirala = (fn) => { const p = sira.then(fn); sira = p.catch(() => {}).then(() => bekle(1500)); return p; };
+async function lidCoz(sock, grup, lid) {
+  if (lidPn.has(lid)) return lidPn.get(lid);
+  if (Date.now() - (grupSon.get(grup) || 0) < 10 * 60e3) return null;
+  grupSon.set(grup, Date.now());
+  try {
+    const meta = await Promise.race([sirala(() => sock.groupMetadata(grup)), bekle(10000).then(() => null)]);
+    if (lidPn.size > 200000) lidPn.clear();
+    for (const p of meta?.participants || []) {
+      const l = p.lid || (String(p.id).endsWith('@lid') ? p.id : null);
+      const n = p.phoneNumber || (String(p.id).endsWith('@s.whatsapp.net') ? p.id : null);
+      if (l && n) lidPn.set(l, n);
+    }
+  } catch (e) { log('⚠️ Grup üyeleri alınamadı:', e.message); }
+  return lidPn.get(lid) || null;
+}
+
 // İlan metninde numara yoksa mesajı yazanın WhatsApp numarası kullanılır (yalnız Türkiye cep numarası).
 async function gondericiTel(sock, m) {
   const k = m.key || {};
   let j = [k.participantPn, k.participantAlt, k.participant].find(x => typeof x === 'string' && x.endsWith('@s.whatsapp.net'));
   if (!j && String(k.participant || '').endsWith('@lid')) {          // yeni WhatsApp: gönderici LID ile gelir, numaraya çevrilmeli
     try { j = await sock.signalRepository?.lidMapping?.getPNForLID?.(k.participant); } catch { /* çözülemedi */ }
+    if (!j) j = await lidCoz(sock, m.key.remoteJid, k.participant);
   }
   const d = String(j || '').split('@')[0].split(':')[0].replace(/\D/g, '');
   return /^905\d{9}$/.test(d) ? `0${d.slice(2, 5)} ${d.slice(5, 8)} ${d.slice(8, 10)} ${d.slice(10)}` : null;
