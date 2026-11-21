@@ -151,7 +151,7 @@ async function lidCoz(sock, grup, lid) {
   grupSon.set(grup, Date.now());
   try {
     const meta = await Promise.race([sirala(() => sock.groupMetadata(grup)), bekle(10000).then(() => null)]);
-    if (lidPn.size > 50000) lidPn.clear();
+    if (lidPn.size > 100000) lidPn.clear();
     for (const p of meta?.participants || []) {
       const l = p.lid || (String(p.id).endsWith('@lid') ? p.id : null);
       const n = p.phoneNumber || (String(p.id).endsWith('@s.whatsapp.net') ? p.id : null);
@@ -244,6 +244,8 @@ function teshis(type, m) {   // gelen her olayı türüne göre say (mesaj neden
   if (!m.message && stubOrnek.size < 6) stubOrnek.add(`${m.messageStubType}:${(m.messageStubParameters || []).join(',').slice(0, 70)}`);
 }
 let yenidenDeneme = 0, zamanlayici = null;
+let kopmaSayac = 0;
+const KOPMA_LIMIT = Number(env.KOPMA_LIMIT) || 5;   // bir süreçte bu kadar kopmadan sonra temiz yeniden başlatma (bellek birikmesin)
 let sonOlay = Date.now(), aktifSock = null, bagli = false, sessizSayac = 0;
 const WATCHDOG_MS = (Number(env.WATCHDOG_DK) || 20) * 60e3;   // bağlı görünüp bu kadar süre hiç mesaj gelmezse bağlantı ölü sayılır
 function yenidenBaslat(neden) {
@@ -315,6 +317,7 @@ async function baslat() {
         log('⚠️ Oturum başka yerde açıldı (iki kopya çalışıyor olabilir). 60 sn sonra tekrar.');
         yenidenPlanla(60000);
       } else {
+        if (kod !== DisconnectReason.restartRequired && ++kopmaSayac >= KOPMA_LIMIT) { log(`♻️ ${kopmaSayac} kopma oldu, bellek temizliği için süreç yeniden başlatılıyor.`); process.exit(1); }
         yenidenDeneme++;
         yenidenPlanla(kod === DisconnectReason.restartRequired ? 1000 : Math.min(3000 * 2 ** Math.min(yenidenDeneme - 1, 5), 60000));
       }
@@ -337,7 +340,7 @@ setInterval(() => {   // 10 dk'da bir özet + bellek temizliği
   for (const [k, t] of gorulenId) if (simdi - t > 3600e3) gorulenId.delete(k);
   for (const [k, p] of parcalar) if (simdi - p.z > PARCA_MS) parcalar.delete(k);
   const mu = process.memoryUsage();
-  log(`📊 RAM:${Math.round(mu.rss / 1048576)}MB heap:${Math.round(mu.heapUsed / 1048576)}MB lidPn:${lidPn.size} imza:${gorulen.size} grupAd:${grupAdlari.size} | sonMesaj:${Math.round((Date.now() - sonOlay) / 60000)}dk önce bağlı:${bagli} | mesaj:${ist.mesaj} eski:${ist.eski} kabul:${ist.kabul} mükerrer:${ist.mukerrer} yazılamadı:${ist.yazilamadi} profilNo:${ist.profilTel} noÇözülemedi:${ist.telCozulemedi} (yabancıNo:${ist.telYabanci} lidÇözülemedi:${ist.telLid} gönderenYok:${ist.telYok}) | tani: ${JSON.stringify(tani)} stub: ${JSON.stringify([...stubOrnek])} | ret: ${JSON.stringify(retler)}`);
+  log(`📊 RAM:${Math.round(mu.rss / 1048576)}MB heap:${Math.round(mu.heapUsed / 1048576)}MB lidPn:${lidPn.size} imza:${gorulen.size} grupAd:${grupAdlari.size} | kopma:${kopmaSayac} | sonMesaj:${Math.round((Date.now() - sonOlay) / 60000)}dk önce bağlı:${bagli} | mesaj:${ist.mesaj} eski:${ist.eski} kabul:${ist.kabul} mükerrer:${ist.mukerrer} yazılamadı:${ist.yazilamadi} profilNo:${ist.profilTel} noÇözülemedi:${ist.telCozulemedi} (yabancıNo:${ist.telYabanci} lidÇözülemedi:${ist.telLid} gönderenYok:${ist.telYok}) | tani: ${JSON.stringify(tani)} stub: ${JSON.stringify([...stubOrnek])} | ret: ${JSON.stringify(retler)}`);
 }, 10 * 60e3).unref();
 setInterval(() => eskileriSil().catch(() => {}), 30 * 60e3).unref();
 const RSS_LIMIT = (Number(env.RSS_LIMIT_MB) || 450) * 1048576;
