@@ -191,7 +191,7 @@ async function mesajIsle(sock, m) {
   const jid = m.key?.remoteJid;
   if (!jid?.endsWith('@g.us') || m.key.fromMe || !m.message) return;       // yalnız grup mesajları
   if (m.key.id) { if (gorulenId.has(m.key.id)) return; gorulenId.set(m.key.id, Date.now()); }
-  ist.mesaj++;
+  ist.mesaj++; sonOlay = Date.now(); sessizSayac = 0;   // gerçek grup mesajı geldi → bağlantı canlı
 
   const yasDk = (Date.now() / 1000 - tsSaniye(m.messageTimestamp)) / 60;
   if (yasDk > AYAR.MAX_YAS_DK) { ist.eski++; return; }
@@ -236,9 +236,16 @@ async function mesajIsle(sock, m) {
 }
 
 // ═══════════ WhatsApp bağlantısı ═══════════
+const tani = {}, stubOrnek = new Set();
+function teshis(type, m) {   // gelen her olayı türüne göre say (mesaj neden işlenmiyor, anlamak için)
+  const j = m.key?.remoteJid || '';
+  const t = [type, j.endsWith('@g.us') ? 'grup' : j.endsWith('@broadcast') ? 'yayin' : 'diger', m.key?.fromMe ? 'ben' : 'dis', m.message ? 'icerik' : 'BOS'].join('|');
+  tani[t] = (tani[t] || 0) + 1;
+  if (!m.message && stubOrnek.size < 6) stubOrnek.add(`${m.messageStubType}:${(m.messageStubParameters || []).join(',').slice(0, 70)}`);
+}
 let yenidenDeneme = 0, zamanlayici = null;
 let sonOlay = Date.now(), aktifSock = null, bagli = false, sessizSayac = 0;
-const WATCHDOG_MS = (Number(env.WATCHDOG_DK) || 10) * 60e3;   // bağlı görünüp bu kadar süre hiç mesaj gelmezse bağlantı ölü sayılır
+const WATCHDOG_MS = (Number(env.WATCHDOG_DK) || 20) * 60e3;   // bağlı görünüp bu kadar süre hiç mesaj gelmezse bağlantı ölü sayılır
 function yenidenBaslat(neden) {
   log(`🔄 Yeniden bağlanılıyor: ${neden}`);
   bagli = false;
@@ -315,7 +322,7 @@ async function baslat() {
   });
 
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
-    sonOlay = Date.now(); sessizSayac = 0;          // bağlantı canlı
+    for (const m of messages || []) teshis(type, m);
     if (type !== 'notify') return;                  // geçmişten yüklenenler işlenmez
     for (const m of messages || []) {
       try { await mesajIsle(sock, m); } catch (e) { log('⚠️ Mesaj işleme hatası:', e.message); }
@@ -330,7 +337,7 @@ setInterval(() => {   // 10 dk'da bir özet + bellek temizliği
   for (const [k, t] of gorulenId) if (simdi - t > 3600e3) gorulenId.delete(k);
   for (const [k, p] of parcalar) if (simdi - p.z > PARCA_MS) parcalar.delete(k);
   const mu = process.memoryUsage();
-  log(`📊 RAM:${Math.round(mu.rss / 1048576)}MB heap:${Math.round(mu.heapUsed / 1048576)}MB lidPn:${lidPn.size} imza:${gorulen.size} grupAd:${grupAdlari.size} | sonMesaj:${Math.round((Date.now() - sonOlay) / 60000)}dk önce bağlı:${bagli} | mesaj:${ist.mesaj} eski:${ist.eski} kabul:${ist.kabul} mükerrer:${ist.mukerrer} yazılamadı:${ist.yazilamadi} profilNo:${ist.profilTel} noÇözülemedi:${ist.telCozulemedi} (yabancıNo:${ist.telYabanci} lidÇözülemedi:${ist.telLid} gönderenYok:${ist.telYok}) | ret: ${JSON.stringify(retler)}`);
+  log(`📊 RAM:${Math.round(mu.rss / 1048576)}MB heap:${Math.round(mu.heapUsed / 1048576)}MB lidPn:${lidPn.size} imza:${gorulen.size} grupAd:${grupAdlari.size} | sonMesaj:${Math.round((Date.now() - sonOlay) / 60000)}dk önce bağlı:${bagli} | mesaj:${ist.mesaj} eski:${ist.eski} kabul:${ist.kabul} mükerrer:${ist.mukerrer} yazılamadı:${ist.yazilamadi} profilNo:${ist.profilTel} noÇözülemedi:${ist.telCozulemedi} (yabancıNo:${ist.telYabanci} lidÇözülemedi:${ist.telLid} gönderenYok:${ist.telYok}) | tani: ${JSON.stringify(tani)} stub: ${JSON.stringify([...stubOrnek])} | ret: ${JSON.stringify(retler)}`);
 }, 10 * 60e3).unref();
 setInterval(() => eskileriSil().catch(() => {}), 30 * 60e3).unref();
 const RSS_LIMIT = (Number(env.RSS_LIMIT_MB) || 450) * 1048576;
@@ -344,7 +351,7 @@ setInterval(() => {   // watchdog: bağlı görünüp mesaj akmıyorsa soketi ye
   if (sessiz < WATCHDOG_MS) return;
   sonOlay = Date.now();
   if (++sessizSayac >= 2) { log('💀 Soket yenilemesine rağmen mesaj gelmiyor, süreç kapatılıyor (pm2 yeniden başlatacak).'); process.exit(1); }
-  yenidenBaslat(`${Math.round(sessiz / 60000)} dk boyunca hiç mesaj gelmedi (bağlantı ölü olabilir)`);
+  yenidenBaslat(`${Math.round(sessiz / 60000)} dk boyunca işlenebilir grup mesajı gelmedi (bağlantı ölü olabilir) | tani: ${JSON.stringify(tani)}`);
 }, 60e3).unref();
 process.on('unhandledRejection', (e) => log('⚠️ unhandledRejection:', e?.message || e));
 process.on('uncaughtException', (e) => log('⚠️ uncaughtException:', e?.stack || e));
