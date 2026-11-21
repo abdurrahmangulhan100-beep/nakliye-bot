@@ -38,7 +38,7 @@ const AYAR = {
   ENGELLI_GRUPLAR: (env.ENGELLI_GRUPLAR || '').split(',').map(normalize).filter(Boolean)
 };
 
-const zaman = () => new Date().toISOString().slice(11, 19);
+const zaman = () => new Date().toLocaleString('sv-SE', { timeZone: 'Europe/Istanbul' }).slice(5);   // AA-GG SS:DD:SN (TR saati)
 const log = (...a) => console.log(zaman(), ...a);
 const bekle = (ms) => new Promise(r => setTimeout(r, ms));
 const kisalt = (t, n) => { t = String(t).replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
@@ -151,7 +151,7 @@ async function lidCoz(sock, grup, lid) {
   grupSon.set(grup, Date.now());
   try {
     const meta = await Promise.race([sirala(() => sock.groupMetadata(grup)), bekle(10000).then(() => null)]);
-    if (lidPn.size > 200000) lidPn.clear();
+    if (lidPn.size > 50000) lidPn.clear();
     for (const p of meta?.participants || []) {
       const l = p.lid || (String(p.id).endsWith('@lid') ? p.id : null);
       const n = p.phoneNumber || (String(p.id).endsWith('@s.whatsapp.net') ? p.id : null);
@@ -237,6 +237,14 @@ async function mesajIsle(sock, m) {
 
 // ═══════════ WhatsApp bağlantısı ═══════════
 let yenidenDeneme = 0, zamanlayici = null;
+let sonOlay = Date.now(), aktifSock = null, bagli = false, sessizSayac = 0;
+const WATCHDOG_MS = (Number(env.WATCHDOG_DK) || 10) * 60e3;   // bağlı görünüp bu kadar süre hiç mesaj gelmezse bağlantı ölü sayılır
+function yenidenBaslat(neden) {
+  log(`🔄 Yeniden bağlanılıyor: ${neden}`);
+  bagli = false;
+  try { aktifSock?.ev.removeAllListeners('messages.upsert'); aktifSock?.end(undefined); } catch { /* zaten kapalı */ }
+  yenidenPlanla(1000);
+}
 function yenidenPlanla(ms) {
   clearTimeout(zamanlayici);
   zamanlayici = setTimeout(() => baslat().catch(hataYakala), ms);
@@ -264,9 +272,14 @@ async function baslat() {
     syncFullHistory: false,
     shouldSyncHistoryMessage: () => false,
     generateHighQualityLinkPreview: false,
+    keepAliveIntervalMs: 25000,
+    connectTimeoutMs: 60000,
+    defaultQueryTimeoutMs: 60000,
+    getMessage: async () => undefined,
     shouldIgnoreJid: (j) => !String(j).endsWith('@g.us')   // özel mesaj / durum (status) işlenmesin
   });
 
+  aktifSock = sock;
   let kodIstendi = false;
   sock.ev.on('creds.update', saveCreds);
   sock.ev.on('connection.update', async ({ connection, qr, lastDisconnect }) => {
@@ -281,13 +294,14 @@ async function baslat() {
         console.log(await QRCode.toString(qr, { type: 'terminal', small: true }));
       }
     }
-    if (connection === 'open') { yenidenDeneme = 0; log('✅ WhatsApp bağlandı, ilanlar dinleniyor.'); }
+    if (connection === 'open') { yenidenDeneme = 0; bagli = true; sonOlay = Date.now(); sessizSayac = 0; log('✅ WhatsApp bağlandı, ilanlar dinleniyor.'); }
     if (connection === 'close') {
+      if (sock === aktifSock) bagli = false;
       try { sock.ev.removeAllListeners('messages.upsert'); sock.end(undefined); } catch { /* zaten kapalı */ }
       const kod = lastDisconnect?.error?.output?.statusCode;
-      log(`🔌 Bağlantı kapandı (kod: ${kod ?? '?'})`);
+      log(`🔌 Bağlantı kapandı (kod: ${kod ?? '?'}, sebep: ${lastDisconnect?.error?.message || '?'})`);
       if (kod === DisconnectReason.loggedOut) {
-        log('🚪 Oturum kapatılmış; kimlik silinip yeni eşleştirme beklenecek.');
+        log('🚨🚨 OTURUM KAPATILDI (WhatsApp cihazı bağlantıdan çıkardı). Bot ÇALIŞMIYOR — yeni eşleştirme kodu için bu logu izle ve telefondan kodu gir.');
         try { fs.rmSync(AYAR.AUTH_DIR, { recursive: true, force: true }); } catch { /* yok say */ }
         yenidenPlanla(2000);
       } else if (kod === DisconnectReason.connectionReplaced) {
@@ -301,6 +315,7 @@ async function baslat() {
   });
 
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
+    sonOlay = Date.now(); sessizSayac = 0;          // bağlantı canlı
     if (type !== 'notify') return;                  // geçmişten yüklenenler işlenmez
     for (const m of messages || []) {
       try { await mesajIsle(sock, m); } catch (e) { log('⚠️ Mesaj işleme hatası:', e.message); }
@@ -314,11 +329,25 @@ setInterval(() => {   // 10 dk'da bir özet + bellek temizliği
   for (const [k, t] of gorulen) if (simdi - t > AYAR.MUKERRER_SAAT * 3600e3) gorulen.delete(k);
   for (const [k, t] of gorulenId) if (simdi - t > 3600e3) gorulenId.delete(k);
   for (const [k, p] of parcalar) if (simdi - p.z > PARCA_MS) parcalar.delete(k);
-  log(`📊 mesaj:${ist.mesaj} eski:${ist.eski} kabul:${ist.kabul} mükerrer:${ist.mukerrer} yazılamadı:${ist.yazilamadi} profilNo:${ist.profilTel} noÇözülemedi:${ist.telCozulemedi} (yabancıNo:${ist.telYabanci} lidÇözülemedi:${ist.telLid} gönderenYok:${ist.telYok}) | ret: ${JSON.stringify(retler)}`);
+  const mu = process.memoryUsage();
+  log(`📊 RAM:${Math.round(mu.rss / 1048576)}MB heap:${Math.round(mu.heapUsed / 1048576)}MB lidPn:${lidPn.size} imza:${gorulen.size} grupAd:${grupAdlari.size} | sonMesaj:${Math.round((Date.now() - sonOlay) / 60000)}dk önce bağlı:${bagli} | mesaj:${ist.mesaj} eski:${ist.eski} kabul:${ist.kabul} mükerrer:${ist.mukerrer} yazılamadı:${ist.yazilamadi} profilNo:${ist.profilTel} noÇözülemedi:${ist.telCozulemedi} (yabancıNo:${ist.telYabanci} lidÇözülemedi:${ist.telLid} gönderenYok:${ist.telYok}) | ret: ${JSON.stringify(retler)}`);
 }, 10 * 60e3).unref();
 setInterval(() => eskileriSil().catch(() => {}), 30 * 60e3).unref();
+const RSS_LIMIT = (Number(env.RSS_LIMIT_MB) || 450) * 1048576;
+setInterval(() => {   // RAM koruması: limit aşılırsa temiz yeniden başlat (makine swap'e çökmeden)
+  const rss = process.memoryUsage().rss;
+  if (rss > RSS_LIMIT) { log(`🧯 RAM ${Math.round(rss / 1048576)}MB limiti aştı, süreç yeniden başlatılıyor.`); process.exit(1); }
+}, 30e3).unref();
+setInterval(() => {   // watchdog: bağlı görünüp mesaj akmıyorsa soketi yenile; 3 kez düzelmezse süreci kapat (pm2 yeniden başlatır)
+  if (!bagli) return;
+  const sessiz = Date.now() - sonOlay;
+  if (sessiz < WATCHDOG_MS) return;
+  sonOlay = Date.now();
+  if (++sessizSayac >= 2) { log('💀 Soket yenilemesine rağmen mesaj gelmiyor, süreç kapatılıyor (pm2 yeniden başlatacak).'); process.exit(1); }
+  yenidenBaslat(`${Math.round(sessiz / 60000)} dk boyunca hiç mesaj gelmedi (bağlantı ölü olabilir)`);
+}, 60e3).unref();
 process.on('unhandledRejection', (e) => log('⚠️ unhandledRejection:', e?.message || e));
-process.on('uncaughtException', (e) => log('⚠️ uncaughtException:', e?.message || e));
+process.on('uncaughtException', (e) => log('⚠️ uncaughtException:', e?.stack || e));
 
 log('🚀 Nakliye Bot v4 başlıyor…');
 eskileriSil().catch(() => {});
